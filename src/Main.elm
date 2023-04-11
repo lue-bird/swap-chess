@@ -829,7 +829,14 @@ computerEvaluationChat evaluation =
 
     else if evaluation < -4 then
         ( "Hmmm, you're better than i expected."
-        , []
+        , [ "You're doing great."
+          , "You're on a good path. Keep at it!"
+          , "Good job so far!"
+          , "By this point it'll be hard to recover for me :("
+          , "This is not exactly going my way :/"
+          , "I'm disappointed in myself."
+          , "Yikes. I'm bad"
+          ]
         )
 
     else if evaluation < -2 then
@@ -839,6 +846,10 @@ computerEvaluationChat evaluation =
           , "I couldn't find great moves so far"
           , "Not bad."
           , "Nice."
+          , "Good. Good."
+          , "Jo"
+          , "I was too focused on chatting... Imma think more"
+          , "Hey!"
           ]
         )
 
@@ -850,6 +861,10 @@ computerEvaluationChat evaluation =
           , "You're not making this as easy as I thought"
           , "I'm not scared. Go on"
           , "I like how you play."
+          , "I don't hate how you're playing..."
+          , "Not bad. Do you have ideas on how to proceed?"
+          , "Yep"
+          , "I wouldn't say you're much better here"
           ]
         )
 
@@ -862,6 +877,7 @@ computerEvaluationChat evaluation =
           , "Wake me up when you make a move that does something."
           , "Not great, not terrible"
           , "..."
+          , "You're definitely holding."
           ]
         )
 
@@ -870,6 +886,8 @@ computerEvaluationChat evaluation =
         , [ "I like where this is going"
           , "Yey"
           , "This is starting to look promising"
+          , "Jo"
+          , "If I get in a few more moves I might already be better"
           ]
         )
 
@@ -878,6 +896,8 @@ computerEvaluationChat evaluation =
         , [ "Am i starting to outplay you?"
           , "I believe in you! You can draw this I think."
           , "Common, you can't just let me win like this."
+          , "I really like my position!"
+          , "What are you gonna do? I'd say I'm already better"
           ]
         )
 
@@ -885,6 +905,7 @@ computerEvaluationChat evaluation =
         ( "You're just trash."
         , [ "I didn't expect you to be this bad."
           , "You're blundering and I'm happy. This is how it is supposed to be."
+          , "You're disappointing me."
           ]
         )
 
