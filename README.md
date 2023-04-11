@@ -10,9 +10,10 @@ Chess against a custom bot, built using [elm](https://elm-lang.org/).
 ```noformatingples
 npx elm-watch hot
 ```
-see [lydell/elm-watch website](https://lydell.github.io/elm-watch/)
+  - [lydell/elm-watch website](https://lydell.github.io/elm-watch/)
+
 and open the index.html file or better
 ```noformatingples
 serve
 ```
-see [vercel/serve](https://github.com/vercel/serve)
+  - [vercel/serve](https://github.com/vercel/serve)
