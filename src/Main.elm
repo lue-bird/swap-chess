@@ -1045,8 +1045,14 @@ computeBestMove :
 computeBestMove =
     \board ->
         let
+            initialEvaluation : Float
             initialEvaluation =
-                boardEvaluateNow board
+                case mateKindEvaluation { colorToMove = computerColor } board of
+                    Just mateEvaluation ->
+                        mateEvaluation
+
+                    Nothing ->
+                        boardEvaluateNowDisregardingMateKinds board
         in
         board
             |> piecesFor computerColor
@@ -1057,17 +1063,12 @@ computeBestMove =
                 )
             |> List.filterMap
                 (\move ->
-                    let
-                        moveDiff_ =
-                            moveDiff move board
-                    in
-                    deepEvaluate
+                    deepEvaluateAfterMove
                         { colorToMove = pieceColorOpponent computerColor
                         , depth = 0
-                        , board = board |> applyMoveDiff moveDiff_
-                        , evaluationSoFar =
-                            initialEvaluation
-                                + moveDiffEvaluate moveDiff_ board
+                        , board = board
+                        , move = move
+                        , evaluationSoFar = initialEvaluation
                         }
                         |> Maybe.map (\eval -> { move = move, evaluation = eval })
                 )
@@ -1083,6 +1084,42 @@ computeBestMove =
                 }
 
 
+deepEvaluateAfterMove :
+    { colorToMove : PieceColor
+    , depth : Int
+    , board : Board
+    , evaluationSoFar : Float
+    , move : { from : FieldLocation, to : FieldLocation, extra : List MoveExtraOutcome }
+    }
+    -> Maybe Float
+deepEvaluateAfterMove { colorToMove, depth, board, evaluationSoFar, move } =
+    let
+        moveDiff_ =
+            moveDiff move board
+
+        boardAfterMove =
+            board |> applyMoveDiff moveDiff_
+    in
+    case mateKindEvaluation { colorToMove = colorToMove |> pieceColorOpponent } boardAfterMove of
+        Just mateEvaluation ->
+            Just mateEvaluation
+
+        Nothing ->
+            deepEvaluate
+                { colorToMove = colorToMove
+                , board = boardAfterMove
+                , evaluationSoFar = evaluationSoFar + moveDiffEvaluate moveDiff_ board
+                , depth = depth
+                }
+
+
+deepEvaluate :
+    { colorToMove : PieceColor
+    , depth : Int
+    , board : Board
+    , evaluationSoFar : Float
+    }
+    -> Maybe Float
 deepEvaluate { colorToMove, depth, board, evaluationSoFar } =
     if depth >= 2 then
         evaluationSoFar |> Just
@@ -1107,48 +1144,53 @@ deepEvaluate { colorToMove, depth, board, evaluationSoFar } =
                 )
             |> List.filterMap
                 (\move ->
-                    let
-                        moveDiff_ =
-                            moveDiff move board
-                    in
-                    deepEvaluate
+                    deepEvaluateAfterMove
                         { colorToMove = pieceColorOpponent colorToMove
+                        , move = move
                         , depth = depth + 1
-                        , board = board |> applyMoveDiff moveDiff_
-                        , evaluationSoFar = evaluationSoFar + moveDiffEvaluate moveDiff_ board
+                        , board = board
+                        , evaluationSoFar = evaluationSoFar
                         }
                 )
             |> chooseBestForColorToMove
 
 
-boardEvaluateNow : Board -> Float
-boardEvaluateNow =
-    \board ->
-        case mateKindFor (computerColor |> pieceColorOpponent) board of
+mateKindEvaluation : { colorToMove : PieceColor } -> Board -> Maybe Float
+mateKindEvaluation { colorToMove } board =
+    if colorToMove == computerColor then
+        case mateKindFor computerColor board of
             Just Stalemate ->
-                0
+                Just 0
 
             Just Checkmate ->
-                10000
+                Just -10000
 
             Nothing ->
-                case mateKindFor computerColor board of
-                    Just Stalemate ->
-                        0
+                Nothing
 
-                    Just Checkmate ->
-                        -10000
+    else
+        case mateKindFor (computerColor |> pieceColorOpponent) board of
+            Just Stalemate ->
+                Just 0
 
-                    Nothing ->
-                        let
-                            computerPieces =
-                                piecesFor computerColor board
+            Just Checkmate ->
+                Just 10000
 
-                            playerPieces =
-                                piecesFor (computerColor |> pieceColorOpponent) board
-                        in
-                        (computerPieces |> List.map (pieceEvaluate computerColor) |> List.sum)
-                            - (playerPieces |> List.map (pieceEvaluate (computerColor |> pieceColorOpponent)) |> List.sum)
+            Nothing ->
+                Nothing
+
+
+boardEvaluateNowDisregardingMateKinds : Board -> Float
+boardEvaluateNowDisregardingMateKinds =
+    \board ->
+        (piecesFor computerColor board
+            |> List.map (pieceEvaluate computerColor)
+            |> List.sum
+        )
+            - (piecesFor (computerColor |> pieceColorOpponent) board
+                |> List.map (pieceEvaluate (computerColor |> pieceColorOpponent))
+                |> List.sum
+              )
 
 
 moveDiffEvaluate : MoveDiff -> Board -> Float
