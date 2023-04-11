@@ -66,7 +66,13 @@ type alias ColoredPiece =
 
 type alias Board =
     ArraySized
-        (ArraySized (Maybe ColoredPiece) (Exactly (On N8)))
+        (ArraySized
+            { -- stored for optimization purposes
+              location : FieldLocation
+            , content : Maybe ColoredPiece
+            }
+            (Exactly (On N8))
+        )
         (Exactly (On N8))
 
 
@@ -74,6 +80,7 @@ type alias State =
     { audioPieceMove : Result Audio.LoadError Audio.Source
     , board : Board
     , selection : Maybe FieldLocation
+    , lastMove : Maybe { from : FieldLocation, to : FieldLocation }
     , computerChat : List String
     , randomSeed : Random.Seed
     }
@@ -124,6 +131,7 @@ init () =
         , randomSeed =
             -- dummy
             Random.initialSeed 1234432
+        , lastMove = Nothing
         }
         |> Reaction.effectsAdd (List.map LoadAudio audioPieces)
         |> Reaction.effectsAdd [ GenerateInitialRandomSeed ]
@@ -147,6 +155,16 @@ boardStartingPositionDefault =
         |> ArraySized.push
             (ArraySized.l8 Rook Knight Bishop Queen King Bishop Knight Rook
                 |> ArraySized.map (\piece -> Just { color = Black, piece = piece })
+            )
+        |> ArraySized.and (ArraySized.upTo n7)
+        |> ArraySized.map
+            (\( rowFields, row ) ->
+                rowFields
+                    |> ArraySized.and (ArraySized.upTo n7)
+                    |> ArraySized.map
+                        (\( content, column ) ->
+                            { content = content, location = { row = row, column = column } }
+                        )
             )
 
 
@@ -185,6 +203,7 @@ reactTo event =
                                         , board =
                                             state.board
                                                 |> applyMove { from = currentSelectedFieldLocation, to = fieldLocation, extra = extra }
+                                        , lastMove = { from = currentSelectedFieldLocation, to = fieldLocation } |> Just
                                     }
                                     |> Reaction.effectsAdd [ RequestComputerMove ]
 
@@ -200,7 +219,8 @@ reactTo event =
                 Reaction.to
                     { state
                         | board =
-                            state.board |> applyMove computerMove.move
+                            state.board |> applyMoveDiff computerMove.moveDiff
+                        , lastMove = { from = computerMove.move.from, to = computerMove.move.to } |> Just
                         , computerChat = state.computerChat |> (::) generatedComputerChatMessage
                         , randomSeed = newRandomSeed
                     }
@@ -264,7 +284,9 @@ replaceAt location replacement =
     \board ->
         board
             |> ArraySized.elementAlter ( Up, location.row )
-                (ArraySized.elementReplace ( Up, location.column ) replacement)
+                (ArraySized.elementAlter ( Up, location.column )
+                    (\field -> { field | content = replacement () })
+                )
 
 
 moveDiff : { from : FieldLocation, to : FieldLocation, extra : List MoveExtraOutcome } -> Board -> MoveDiff
@@ -970,22 +992,20 @@ piecesFor : PieceColor -> Board -> List { piece : PieceKind, location : FieldLoc
 piecesFor color =
     \board ->
         board
-            |> ArraySized.and (ArraySized.upTo n7)
             |> ArraySized.toList
             |> List.concatMap
-                (\( fieldRow, row ) ->
+                (\fieldRow ->
                     fieldRow
-                        |> ArraySized.and (ArraySized.upTo n7)
                         |> ArraySized.toList
                         |> List.filterMap
-                            (\( field, column ) ->
-                                case field of
+                            (\field ->
+                                case field.content of
                                     Nothing ->
                                         Nothing
 
                                     Just coloredPiece ->
                                         if coloredPiece.color == color then
-                                            { piece = coloredPiece.piece, location = { row = row, column = column } } |> Just
+                                            { piece = coloredPiece.piece, location = field.location } |> Just
 
                                         else
                                             Nothing
@@ -1008,27 +1028,25 @@ isCheckFor color =
 kingLocation : PieceColor -> Board -> Maybe FieldLocation
 kingLocation kingColor board =
     board
-        |> ArraySized.and (ArraySized.upTo n7)
         |> ArraySized.foldFrom Nothing
             Up
-            (\( boardRow, row ) soFar ->
+            (\boardRow soFar ->
                 case soFar of
                     Just found ->
                         Just found
 
                     Nothing ->
                         boardRow
-                            |> ArraySized.and (ArraySized.upTo n7)
                             |> ArraySized.foldFrom Nothing
                                 Up
-                                (\( fieldContent, column ) rowSoFar ->
+                                (\field rowSoFar ->
                                     case rowSoFar of
                                         Just found ->
                                             Just found
 
                                         Nothing ->
-                                            if fieldContent == Just { piece = King, color = kingColor } then
-                                                { row = row, column = column } |> Just
+                                            if field.content == Just { piece = King, color = kingColor } then
+                                                field.location |> Just
 
                                             else
                                                 Nothing
@@ -1039,7 +1057,8 @@ kingLocation kingColor board =
 computeBestMove :
     Board
     ->
-        { move : { from : FieldLocation, to : FieldLocation, extra : List MoveExtraOutcome }
+        { move : { from : FieldLocation, to : FieldLocation }
+        , moveDiff : MoveDiff
         , evaluation : Float
         }
 computeBestMove =
@@ -1059,16 +1078,20 @@ computeBestMove =
             |> List.concatMap
                 (\from ->
                     validMovesFrom from.location board
-                        |> List.map (\move -> { from = from.location, to = move.to, extra = move.extra })
                         |> List.map
                             (\move ->
-                                { move = move
+                                let
+                                    moveDiff_ =
+                                        moveDiff { from = from.location, to = move.to, extra = move.extra } board
+                                in
+                                { move = { from = from.location, to = move.to }
+                                , moveDiff = moveDiff_
                                 , evaluation =
                                     deepEvaluateAfterMove
                                         { colorToMove = pieceColorOpponent computerColor
                                         , depth = 0
                                         , board = board
-                                        , move = move
+                                        , move = moveDiff_
                                         , evaluationSoFar = initialEvaluation
                                         }
                                 }
@@ -1076,14 +1099,22 @@ computeBestMove =
                 )
             |> List.Extra.maximumBy .evaluation
             -- stalemate or checkmate
-            |> Maybe.withDefault
-                { move =
-                    { from = { row = n5 |> N.toIn ( n0, n7 ), column = n5 |> N.toIn ( n0, n7 ) }
-                    , to = { row = n6 |> N.toIn ( n0, n7 ), column = n6 |> N.toIn ( n0, n7 ) }
-                    , extra = []
-                    }
-                , evaluation = 0
-                }
+            |> Maybe.withDefault moveDummy
+
+
+moveDummy :
+    { move : { from : FieldLocation, to : FieldLocation }
+    , moveDiff : MoveDiff
+    , evaluation : Float
+    }
+moveDummy =
+    { move =
+        { from = { row = n0 |> N.maxTo n7, column = n0 |> N.maxTo n7 }
+        , to = { row = n0 |> N.maxTo n7, column = n0 |> N.maxTo n7 }
+        }
+    , moveDiff = []
+    , evaluation = 0
+    }
 
 
 deepEvaluateAfterMove :
@@ -1091,16 +1122,14 @@ deepEvaluateAfterMove :
     , depth : Int
     , board : Board
     , evaluationSoFar : Float
-    , move : { from : FieldLocation, to : FieldLocation, extra : List MoveExtraOutcome }
+    , move : MoveDiff
     }
     -> Float
 deepEvaluateAfterMove { colorToMove, depth, board, evaluationSoFar, move } =
     let
-        moveDiff_ =
-            moveDiff move board
-
+        boardAfterMove : Board
         boardAfterMove =
-            board |> applyMoveDiff moveDiff_
+            board |> applyMoveDiff move
     in
     case mateKindEvaluation { colorToMove = colorToMove |> pieceColorOpponent } boardAfterMove of
         Just mateEvaluation ->
@@ -1110,7 +1139,7 @@ deepEvaluateAfterMove { colorToMove, depth, board, evaluationSoFar, move } =
             deepEvaluate
                 { colorToMove = colorToMove
                 , board = boardAfterMove
-                , evaluationSoFar = evaluationSoFar + moveDiffEvaluate moveDiff_ board
+                , evaluationSoFar = evaluationSoFar + moveDiffEvaluate move board
                 , depth = depth
                 }
 
@@ -1123,19 +1152,10 @@ deepEvaluate :
     }
     -> Float
 deepEvaluate { colorToMove, depth, board, evaluationSoFar } =
-    if depth >= 3 then
+    if depth >= 2 then
         evaluationSoFar
 
     else
-        let
-            chooseBestForColorToMove : List Float -> Maybe Float
-            chooseBestForColorToMove =
-                if colorToMove == computerColor then
-                    List.maximum
-
-                else
-                    List.minimum
-        in
         board
             |> piecesFor colorToMove
             |> List.concatMap
@@ -1145,16 +1165,25 @@ deepEvaluate { colorToMove, depth, board, evaluationSoFar } =
                             (\move ->
                                 deepEvaluateAfterMove
                                     { colorToMove = pieceColorOpponent colorToMove
-                                    , move = { from = from.location, to = move.to, extra = move.extra }
+                                    , move = moveDiff { from = from.location, to = move.to, extra = move.extra } board
                                     , depth = depth + 1
                                     , board = board
                                     , evaluationSoFar = evaluationSoFar
                                     }
                             )
                 )
-            |> chooseBestForColorToMove
+            |> chooseEvaluationBestFor colorToMove
             -- should be caught by mate kind check
             |> Maybe.withDefault 0
+
+
+chooseEvaluationBestFor : PieceColor -> List Float -> Maybe Float
+chooseEvaluationBestFor colorToMove =
+    if colorToMove == computerColor then
+        List.maximum
+
+    else
+        List.minimum
 
 
 mateKindEvaluation : { colorToMove : PieceColor } -> Board -> Maybe Float
@@ -1198,24 +1227,37 @@ boardEvaluateNowDisregardingMateKinds =
 moveDiffEvaluate : MoveDiff -> Board -> Float
 moveDiffEvaluate moveDiff_ board =
     moveDiff_
-        |> List.map
-            (\moveDiffElement ->
-                -(case board |> at moveDiffElement.location of
-                    Nothing ->
-                        0
-
-                    Just pieceBefore ->
-                        pieceEvaluate pieceBefore.color { piece = pieceBefore.piece, location = moveDiffElement.location }
-                 )
-                    + (case moveDiffElement.replacement of
-                        Just pieceReplacement ->
-                            pieceEvaluate pieceReplacement.color { piece = pieceReplacement.piece, location = moveDiffElement.location }
-
+        |> List.foldl
+            (\moveDiffElement soFar ->
+                soFar
+                    + (case board |> at moveDiffElement.location of
                         Nothing ->
                             0
+
+                        Just pieceBefore ->
+                            pieceEvaluate pieceBefore.color { piece = pieceBefore.piece, location = moveDiffElement.location }
+                                |> (if pieceBefore.color == computerColor then
+                                        negate
+
+                                    else
+                                        identity
+                                   )
+                      )
+                    + (case moveDiffElement.replacement of
+                        Nothing ->
+                            0
+
+                        Just pieceReplacement ->
+                            pieceEvaluate pieceReplacement.color { piece = pieceReplacement.piece, location = moveDiffElement.location }
+                                |> (if pieceReplacement.color == computerColor then
+                                        identity
+
+                                    else
+                                        negate
+                                   )
                       )
             )
-        |> List.sum
+            0
 
 
 pieceEvaluate : PieceColor -> { piece : PieceKind, location : FieldLocation } -> Float
@@ -1341,15 +1383,17 @@ kingEvaluateMap =
 
 at : FieldLocation -> Board -> Maybe ColoredPiece
 at location =
-    ArraySized.element ( Up, location.row )
-        >> ArraySized.element ( Up, location.column )
+    \board ->
+        board
+            |> ArraySized.element ( Up, location.row )
+            |> ArraySized.element ( Up, location.column )
+            |> .content
 
 
 subscriptions : State -> Sub Event
 subscriptions =
-    \state ->
-        []
-            |> Sub.batch
+    \_ ->
+        Sub.none
 
 
 interpretEffect : Effect -> Reaction.EffectInterpretation Event
@@ -1455,7 +1499,13 @@ computerChatUi messages =
             ]
 
 
-boardUi : { state_ | board : Board, selection : Maybe FieldLocation } -> Ui.Element Event
+boardUi :
+    { state_
+        | board : Board
+        , selection : Maybe FieldLocation
+        , lastMove : Maybe { from : FieldLocation, to : FieldLocation }
+    }
+    -> Ui.Element Event
 boardUi state =
     let
         validMoves =
@@ -1467,104 +1517,124 @@ boardUi state =
                     []
     in
     state.board
-        |> ArraySized.and (ArraySized.upTo n7)
-        |> ArraySized.reverse
         |> ArraySized.map
-            (\( fieldRow, row ) ->
+            (\fieldRow ->
                 fieldRow
-                    |> ArraySized.and (ArraySized.upTo n7)
                     |> ArraySized.map
-                        (\( field, column ) ->
-                            let
-                                fieldLocation : FieldLocation
-                                fieldLocation =
-                                    { row = row, column = column }
-                            in
+                        (\field ->
                             field
                                 |> fieldUi state
                                     { isValidMove =
                                         validMoves
-                                            |> List.any (.to >> locationEquals fieldLocation)
+                                            |> List.any (\validMove -> validMove.to |> locationEquals field.location)
                                     }
-                                    fieldLocation
                         )
                     |> ArraySized.toList
-                    |> Ui.row []
+                    |> Ui.row
+                        []
             )
         |> ArraySized.toList
-        |> Ui.column [ Ui.centerX, Ui.centerY ]
+        |> List.reverse
+        |> Ui.column
+            [ Ui.centerX
+            , Ui.centerY
+            , Ui.width (Ui.px 800)
+            , Ui.height (Ui.px 800)
+            ]
 
 
-fieldUi : { state_ | selection : Maybe FieldLocation } -> { isValidMove : Bool } -> FieldLocation -> Maybe ColoredPiece -> Ui.Element Event
-fieldUi state { isValidMove } fieldLocation fieldContent =
+fieldUi :
+    { state_
+        | selection : Maybe FieldLocation
+        , lastMove : Maybe { from : FieldLocation, to : FieldLocation }
+    }
+    -> { isValidMove : Bool }
+    ->
+        { location : FieldLocation
+        , content : Maybe ColoredPiece
+        }
+    -> Ui.Element Event
+fieldUi state { isValidMove } field =
     let
-        fieldColor f =
+        fieldColor =
             if
-                ((fieldLocation.row |> N.toInt |> remainderBy 2) == 0)
-                    == ((fieldLocation.column |> N.toInt |> remainderBy 2) == 0)
+                (field.location.row |> N.toInt |> remainderBy 2)
+                    == (field.location.column |> N.toInt |> remainderBy 2)
             then
-                f 0.8 0.35 0.12
+                Ui.rgb 0.8 0.35 0.12
 
             else
-                f 0.12 0.35 0.8
+                Ui.rgb 0.12 0.35 0.8
+
+        attrs =
+            [ Ui.width (Ui.px 100)
+            , Ui.height (Ui.px 100)
+            , UiBackground.color fieldColor
+            , Ui.centerX
+            , Ui.centerY
+            ]
+                ++ (if isValidMove then
+                        [ UiBorder.innerShadow { offset = ( 0, 0 ), size = 4, color = Ui.rgba 0 0 0 0.6, blur = 32 } ]
+
+                    else
+                        case Maybe.map (locationEquals field.location) state.selection of
+                            Just True ->
+                                [ UiBackground.color (Ui.rgb 0.15 0.7 0.2) ]
+
+                            _ ->
+                                [ UiBorder.innerShadow
+                                    { offset = ( -6, -6 )
+                                    , size = 10
+                                    , blur = 20
+                                    , color = Ui.rgba 0 0 0 0.1
+                                    }
+                                ]
+                   )
+                ++ (case state.lastMove of
+                        Nothing ->
+                            []
+
+                        Just lastMove ->
+                            if
+                                (lastMove.from |> locationEquals field.location)
+                                    || (lastMove.to |> locationEquals field.location)
+                            then
+                                [ UiBorder.innerShadow { offset = ( 0, 0 ), size = 4, color = Ui.rgba 1 1 1 0.6, blur = 32 } ]
+
+                            else
+                                []
+                   )
     in
-    Ui.el
-        ([ Ui.width (Ui.px 100)
-         , Ui.height (Ui.px 100)
-         , UiBackground.color (fieldColor Ui.rgb)
-         , Ui.centerX
-         , Ui.centerY
-         ]
-            ++ (if Maybe.map (locationEquals fieldLocation) state.selection |> Maybe.withDefault False then
-                    [ UiBackground.color (Ui.rgb 0.15 0.7 0.2) ]
+    UiInput.button []
+        { onPress = FieldSelected field.location |> Just
+        , label =
+            case field.content of
+                Nothing ->
+                    Ui.none |> Ui.el attrs
 
-                else if isValidMove then
-                    [ UiBorder.innerShadow { offset = ( 0, 0 ), size = 4, color = Ui.rgba 0 0 0 0.6, blur = 32 } ]
+                Just coloredPiece ->
+                    pieceToIcon coloredPiece.piece Phosphor.Fill
+                        |> Phosphor.withSize 100
+                        |> Phosphor.withSizeUnit "%"
+                        |> Phosphor.toHtml
+                            [ SvgA.style
+                                (case coloredPiece.color of
+                                    Black ->
+                                        "color:black"
 
-                else
-                    [ UiBorder.innerShadow
-                        { offset = ( -6, -6 )
-                        , size = 10
-                        , blur = 20
-                        , color = fieldColor (\r g b -> Ui.rgb (r * 0.9) (g * 0.9) (b * 0.9))
-                        }
-                    ]
-               )
-        )
-        (UiInput.button
-            []
-            { onPress = FieldSelected fieldLocation |> Just
-            , label =
-                case fieldContent of
-                    Nothing ->
-                        Ui.none
-                            |> Ui.el
-                                [ Ui.width (Ui.px 100)
-                                , Ui.height (Ui.px 100)
-                                ]
-
-                    Just coloredPiece ->
-                        pieceToIcon coloredPiece.piece Phosphor.Fill
-                            |> Phosphor.withSize 100
-                            |> Phosphor.withSizeUnit "%"
-                            |> Phosphor.toHtml
-                                [ SvgA.style
-                                    (case coloredPiece.color of
-                                        Black ->
-                                            "color:black"
-
-                                        White ->
-                                            "color:white"
-                                    )
-                                ]
-                            |> Ui.html
-                            |> Ui.el
-                                [ Ui.centerX
-                                , Ui.centerY
-                                , Ui.padding 10
-                                ]
-            }
-        )
+                                    White ->
+                                        "color:white"
+                                )
+                            ]
+                        |> Ui.html
+                        |> Ui.el
+                            ([ Ui.centerX
+                             , Ui.centerY
+                             , Ui.padding 10
+                             ]
+                                ++ attrs
+                            )
+        }
 
 
 pieceToIcon : PieceKind -> Phosphor.Icon
