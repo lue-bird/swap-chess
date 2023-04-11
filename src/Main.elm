@@ -1060,17 +1060,19 @@ computeBestMove =
                 (\from ->
                     validMovesFrom from.location board
                         |> List.map (\move -> { from = from.location, to = move.to, extra = move.extra })
-                )
-            |> List.filterMap
-                (\move ->
-                    deepEvaluateAfterMove
-                        { colorToMove = pieceColorOpponent computerColor
-                        , depth = 0
-                        , board = board
-                        , move = move
-                        , evaluationSoFar = initialEvaluation
-                        }
-                        |> Maybe.map (\eval -> { move = move, evaluation = eval })
+                        |> List.map
+                            (\move ->
+                                { move = move
+                                , evaluation =
+                                    deepEvaluateAfterMove
+                                        { colorToMove = pieceColorOpponent computerColor
+                                        , depth = 0
+                                        , board = board
+                                        , move = move
+                                        , evaluationSoFar = initialEvaluation
+                                        }
+                                }
+                            )
                 )
             |> List.Extra.maximumBy .evaluation
             -- stalemate or checkmate
@@ -1091,7 +1093,7 @@ deepEvaluateAfterMove :
     , evaluationSoFar : Float
     , move : { from : FieldLocation, to : FieldLocation, extra : List MoveExtraOutcome }
     }
-    -> Maybe Float
+    -> Float
 deepEvaluateAfterMove { colorToMove, depth, board, evaluationSoFar, move } =
     let
         moveDiff_ =
@@ -1102,7 +1104,7 @@ deepEvaluateAfterMove { colorToMove, depth, board, evaluationSoFar, move } =
     in
     case mateKindEvaluation { colorToMove = colorToMove |> pieceColorOpponent } boardAfterMove of
         Just mateEvaluation ->
-            Just mateEvaluation
+            mateEvaluation
 
         Nothing ->
             deepEvaluate
@@ -1119,40 +1121,40 @@ deepEvaluate :
     , board : Board
     , evaluationSoFar : Float
     }
-    -> Maybe Float
+    -> Float
 deepEvaluate { colorToMove, depth, board, evaluationSoFar } =
-    if depth >= 2 then
-        evaluationSoFar |> Just
+    if depth >= 3 then
+        evaluationSoFar
 
     else
         let
-            chooseBestForColorToMove : List comparable -> Maybe comparable
+            chooseBestForColorToMove : List Float -> Maybe Float
             chooseBestForColorToMove =
-                case colorToMove of
-                    Black ->
-                        List.maximum
+                if colorToMove == computerColor then
+                    List.maximum
 
-                    White ->
-                        List.minimum
+                else
+                    List.minimum
         in
         board
             |> piecesFor colorToMove
             |> List.concatMap
                 (\from ->
                     validMovesFrom from.location board
-                        |> List.map (\move -> { from = from.location, to = move.to, extra = move.extra })
-                )
-            |> List.filterMap
-                (\move ->
-                    deepEvaluateAfterMove
-                        { colorToMove = pieceColorOpponent colorToMove
-                        , move = move
-                        , depth = depth + 1
-                        , board = board
-                        , evaluationSoFar = evaluationSoFar
-                        }
+                        |> List.map
+                            (\move ->
+                                deepEvaluateAfterMove
+                                    { colorToMove = pieceColorOpponent colorToMove
+                                    , move = { from = from.location, to = move.to, extra = move.extra }
+                                    , depth = depth + 1
+                                    , board = board
+                                    , evaluationSoFar = evaluationSoFar
+                                    }
+                            )
                 )
             |> chooseBestForColorToMove
+            -- should be caught by mate kind check
+            |> Maybe.withDefault 0
 
 
 mateKindEvaluation : { colorToMove : PieceColor } -> Board -> Maybe Float
