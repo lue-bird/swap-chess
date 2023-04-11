@@ -4,13 +4,12 @@ Chess against a custom bot, built using [elm](https://elm-lang.org/).
 
 > neither feature complete, nor intended for public use, yet
 
-## dev
-run locally:
+## run locally
 ```noformatingples
 npx elm-watch hot
 ```
 see [lydell/elm-watch website](https://lydell.github.io/elm-watch/)
-and open the html.index file or better
+and open the index.html file or better
 ```noformatingples
 serve
 ```
