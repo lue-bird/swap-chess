@@ -167,12 +167,11 @@ reactTo event =
                                 Reaction.to state
 
                             Just coloredPiece ->
-                                case coloredPiece.color of
-                                    Black ->
-                                        Reaction.to state
+                                if coloredPiece.color == computerColor then
+                                    Reaction.to state
 
-                                    White ->
-                                        Reaction.to { state | selection = Just fieldLocation }
+                                else
+                                    Reaction.to { state | selection = Just fieldLocation }
 
                     Just currentSelectedFieldLocation ->
                         case checkIfValidMove state.board { from = currentSelectedFieldLocation, to = fieldLocation } of
@@ -292,14 +291,20 @@ moveExtraToDiff move board =
                 ]
 
             Promote ->
-                [ { location = move.to
-                  , replacement =
-                        { piece = Queen
-                        , color = board |> at move.from |> Maybe.map .color |> Maybe.withDefault White
-                        }
-                            |> Just
-                  }
-                ]
+                case board |> at move.from of
+                    -- empty field wants to promote??
+                    Nothing ->
+                        []
+
+                    Just promotingPawn ->
+                        [ { location = move.to
+                          , replacement =
+                                { piece = Queen
+                                , color = promotingPawn.color
+                                }
+                                    |> Just
+                          }
+                        ]
 
 
 possibleMovementDiagonally : List (List { row : Int, column : Int })
@@ -894,8 +899,15 @@ computerEvaluationChat evaluation =
 
     else
         ( "Go back to checkers"
-        , [ "Go back to tik-tak-toe", "We win deez" ]
+        , [ "Go back to tik-tak-toe"
+          , "We win deez"
+          ]
         )
+
+
+computerColor : PieceColor
+computerColor =
+    Black
 
 
 pieceColorOpponent : PieceColor -> PieceColor
@@ -1016,7 +1028,7 @@ computeBestMove =
                 boardEvaluateNow board
         in
         board
-            |> piecesFor Black
+            |> piecesFor computerColor
             |> List.concatMap
                 (\from ->
                     validMovesFrom from.location board
@@ -1029,7 +1041,7 @@ computeBestMove =
                             moveDiff move board
                     in
                     deepEvaluate
-                        { colorToMove = White
+                        { colorToMove = pieceColorOpponent computerColor
                         , depth = 0
                         , board = board |> applyMoveDiff moveDiff_
                         , evaluationSoFar =
@@ -1091,7 +1103,7 @@ deepEvaluate { colorToMove, depth, board, evaluationSoFar } =
 boardEvaluateNow : Board -> Float
 boardEvaluateNow =
     \board ->
-        case mateKindFor White board of
+        case mateKindFor (computerColor |> pieceColorOpponent) board of
             Just Stalemate ->
                 0
 
@@ -1099,7 +1111,7 @@ boardEvaluateNow =
                 10000
 
             Nothing ->
-                case mateKindFor Black board of
+                case mateKindFor computerColor board of
                     Just Stalemate ->
                         0
 
@@ -1109,13 +1121,13 @@ boardEvaluateNow =
                     Nothing ->
                         let
                             computerPieces =
-                                piecesFor Black board
+                                piecesFor computerColor board
 
                             playerPieces =
-                                piecesFor White board
+                                piecesFor (computerColor |> pieceColorOpponent) board
                         in
-                        (computerPieces |> List.map (pieceEvaluate Black) |> List.sum)
-                            - (playerPieces |> List.map (pieceEvaluate White) |> List.sum)
+                        (computerPieces |> List.map (pieceEvaluate computerColor) |> List.sum)
+                            - (playerPieces |> List.map (pieceEvaluate (computerColor |> pieceColorOpponent)) |> List.sum)
 
 
 moveDiffEvaluate : MoveDiff -> Board -> Float
