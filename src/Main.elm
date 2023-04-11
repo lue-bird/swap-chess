@@ -1339,7 +1339,7 @@ audioPieceToName =
 uiDocument : State -> Browser.Document Event
 uiDocument =
     \state ->
-        { title = "schach master"
+        { title = "schach"
         , body =
             state
                 |> ui
