@@ -4,7 +4,9 @@ Chess against a custom bot, built using [elm](https://elm-lang.org/).
 
 > neither feature complete, nor intended for public use, yet
 
-## run locally
+[online](https://lue-bird.github.io/schach/)
+
+### run locally
 ```noformatingples
 npx elm-watch hot
 ```
