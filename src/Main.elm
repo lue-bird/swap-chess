@@ -1438,10 +1438,10 @@ fieldUi state { isValidMove } fieldLocation fieldContent =
                 ((fieldLocation.row |> N.toInt |> remainderBy 2) == 0)
                     == ((fieldLocation.column |> N.toInt |> remainderBy 2) == 0)
             then
-                f 0.82 0.35 0.1
+                f 0.8 0.35 0.12
 
             else
-                f 0.1 0.1 0.8
+                f 0.12 0.35 0.8
     in
     Ui.el
         ([ Ui.width (Ui.px 100)
@@ -1457,7 +1457,12 @@ fieldUi state { isValidMove } fieldLocation fieldContent =
                     [ UiBorder.innerShadow { offset = ( 0, 0 ), size = 4, color = Ui.rgba 0 0 0 0.6, blur = 32 } ]
 
                 else
-                    [ UiBorder.innerShadow { offset = ( -6, -6 ), size = 10, blur = 20, color = fieldColor (\r g b -> Ui.rgb (r * 0.9) (g * 0.9) (b * 0.9)) }
+                    [ UiBorder.innerShadow
+                        { offset = ( -6, -6 )
+                        , size = 10
+                        , blur = 20
+                        , color = fieldColor (\r g b -> Ui.rgb (r * 0.9) (g * 0.9) (b * 0.9))
+                        }
                     ]
                )
         )
