@@ -9867,7 +9867,6 @@ var $author$project$Main$computerEvaluationChat = function (evaluation) {
 		_List_fromArray(
 			['Go back to tik-tak-toe', 'We win deez'])))))))))));
 };
-var $elm$core$String$fromFloat = _String_fromNumber;
 var $elm$random$Random$addOne = function (value) {
 	return _Utils_Tuple2(1, value);
 };
@@ -9942,12 +9941,7 @@ var $author$project$Main$randomComputerEvaluationChat = function (evaluation) {
 	var _v0 = $author$project$Main$computerEvaluationChat(evaluation);
 	var chatPossibility0 = _v0.a;
 	var chatPossibilities1Up = _v0.b;
-	return A2(
-		$elm$random$Random$map,
-		function (message) {
-			return $elm$core$String$fromFloat(evaluation) + (' ' + message);
-		},
-		A2($elm$random$Random$uniform, chatPossibility0, chatPossibilities1Up));
+	return A2($elm$random$Random$uniform, chatPossibility0, chatPossibilities1Up);
 };
 var $author$project$Main$reactTo = function (event) {
 	switch (event.$) {
@@ -10435,6 +10429,7 @@ var $mdgriffith$elm_ui$Internal$Model$Style = F2(
 var $mdgriffith$elm_ui$Internal$Style$dot = function (c) {
 	return '.' + c;
 };
+var $elm$core$String$fromFloat = _String_fromNumber;
 var $mdgriffith$elm_ui$Internal$Model$formatColor = function (_v0) {
 	var red = _v0.a;
 	var green = _v0.b;

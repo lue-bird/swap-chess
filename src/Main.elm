@@ -824,11 +824,7 @@ randomComputerEvaluationChat evaluation =
         ( chatPossibility0, chatPossibilities1Up ) =
             computerEvaluationChat evaluation
     in
-    Random.map
-        (\message ->
-            String.fromFloat evaluation ++ " " ++ message
-        )
-        (Random.uniform chatPossibility0 chatPossibilities1Up)
+    Random.uniform chatPossibility0 chatPossibilities1Up
 
 
 computerEvaluationChat : Float -> ( String, List String )
