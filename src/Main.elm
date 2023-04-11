@@ -836,7 +836,7 @@ computerEvaluationChat evaluation =
         ( "Time to step up my game."
         , [ "You got a bit lucky i guess, I'll turn this around in no time"
           , "Don't think you're winning just yet (please)"
-          , "I couldn't find a great moves so far"
+          , "I couldn't find great moves so far"
           , "Not bad."
           , "Nice."
           ]
