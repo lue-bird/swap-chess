@@ -5,31 +5,20 @@ module Main exposing (main)
 import ArraySized exposing (ArraySized)
 import Audio
 import Browser
-import Color
 import Element as Ui
 import Element.Background as UiBackground
 import Element.Border as UiBorder
 import Element.Events as Ui
 import Element.Font as UiFont
 import Element.Input as UiInput
-import Html
-import Json.Decode
-import Key
-import LineSegment2d exposing (LineSegment2d)
 import Linear exposing (Direction(..))
 import List.Extra
-import Maybe.Extra
-import N exposing (Exactly, In, N, N0, N7, N8, On, n0, n1, n2, n3, n4, n5, n6, n7, n8)
+import N exposing (Exactly, In, N, N0, N7, N8, On, n0, n2, n3, n4, n5, n6, n7, n8)
 import Phosphor
-import Pixels exposing (Pixels, PixelsPerSecond, SquarePixels)
 import PkgPorts
-import Point2d exposing (Point2d)
 import Process
-import Quantity exposing (Quantity, Rate)
 import Random
 import Reaction exposing (Reaction)
-import Speed exposing (MetersPerSecond, Speed)
-import Svg
 import Svg.Attributes as SvgA
 import Task
 import Time
@@ -119,11 +108,6 @@ main =
         }
 
 
-audioPieces : List AudioPiece
-audioPieces =
-    [ AudioPieceMove ]
-
-
 init : () -> Reaction State Effect
 init () =
     Reaction.to
@@ -139,6 +123,11 @@ init () =
         }
         |> Reaction.effectsAdd (List.map LoadAudio audioPieces)
         |> Reaction.effectsAdd [ GenerateInitialRandomSeed ]
+
+
+audioPieces : List AudioPiece
+audioPieces =
+    [ AudioPieceMove ]
 
 
 boardStartingPositionDefault : Board
@@ -170,6 +159,87 @@ boardStartingPositionDefault =
                             { content = content, location = { row = row, column = column } }
                         )
             )
+
+
+computerColor : PieceColor
+computerColor =
+    Black
+
+
+applyMoveDiff : MoveDiff -> Board -> Board
+applyMoveDiff moveDiff_ =
+    \board ->
+        List.foldl
+            (\fieldDiff boardSoFar ->
+                boardSoFar |> replaceAt fieldDiff.location (\() -> fieldDiff.replacement)
+            )
+            board
+            moveDiff_
+
+
+replaceAt : FieldLocation -> (() -> Maybe ColoredPiece) -> Board -> Board
+replaceAt location replacement =
+    \board ->
+        board
+            |> ArraySized.elementAlter ( Up, location.row )
+                (ArraySized.elementAlter ( Up, location.column )
+                    (\field -> { field | content = replacement () })
+                )
+
+
+at : FieldLocation -> Board -> Maybe ColoredPiece
+at location =
+    \board ->
+        board
+            |> ArraySized.element ( Up, location.row )
+            |> ArraySized.element ( Up, location.column )
+            |> .content
+
+
+moveDiff : { from : FieldLocation, to : FieldLocation, extra : List MoveExtraOutcome } -> Board -> MoveDiff
+moveDiff move board =
+    [ { location = move.from, replacement = Nothing }
+    , { location = move.to, replacement = board |> at move.from }
+    ]
+        ++ (move.extra
+                |> List.concatMap (moveExtraToDiff move board)
+           )
+
+
+moveExtraToDiff : { move_ | from : FieldLocation, to : FieldLocation } -> Board -> MoveExtraOutcome -> MoveDiff
+moveExtraToDiff move board =
+    \extra ->
+        case extra of
+            ExtraCapture captureLocation ->
+                [ { location = captureLocation, replacement = Nothing }
+                ]
+
+            ExtraMove extraMove ->
+                [ { location = extraMove.from, replacement = Nothing }
+                , { location = extraMove.to, replacement = board |> at extraMove.from }
+                ]
+
+            Promote ->
+                case board |> at move.from of
+                    -- empty field wants to promote??
+                    Nothing ->
+                        []
+
+                    Just promotingPawn ->
+                        [ { location = move.to
+                          , replacement =
+                                { piece = Queen
+                                , color = promotingPawn.color
+                                }
+                                    |> Just
+                          }
+                        ]
+
+
+applyMove : { from : FieldLocation, to : FieldLocation, extra : List MoveExtraOutcome } -> Board -> Board
+applyMove move =
+    \board ->
+        board |> applyMoveDiff (moveDiff move board)
 
 
 reactTo : Event -> (State -> Reaction State Effect)
@@ -237,104 +307,32 @@ reactTo event =
             \state -> Reaction.to { state | moveTimes = state.moveTimes |> (::) moveTime }
 
 
-type MoveExtraOutcome
-    = -- en passant
-      ExtraCapture FieldLocation
-    | -- castle
-      ExtraMove { from : FieldLocation, to : FieldLocation }
-    | Promote
-
-
-checkIfValidMove : Board -> { from : FieldLocation, to : FieldLocation } -> Maybe (List MoveExtraOutcome)
-checkIfValidMove board move =
-    validMovesFrom move.from board
-        |> List.Extra.find
-            (\validMove -> validMove.to |> locationEquals move.to)
-        |> Maybe.map (\validMove -> validMove.extra)
-
-
-locationEquals : FieldLocation -> FieldLocation -> Bool
-locationEquals a b =
-    ((a.row |> N.toInt) == (b.row |> N.toInt))
-        && ((a.column |> N.toInt) == (b.column |> N.toInt))
-
-
-applyMove : { from : FieldLocation, to : FieldLocation, extra : List MoveExtraOutcome } -> Board -> Board
-applyMove move =
+isCheckFor : PieceColor -> Board -> Bool
+isCheckFor color =
     \board ->
-        board |> applyMoveDiff (moveDiff move board)
+        case kingLocation color board of
+            -- no king??
+            Nothing ->
+                False
+
+            Just kingLoc ->
+                isCheck { for = color, at = kingLoc } board
 
 
-applyMoveFrom : FieldLocation -> { to : FieldLocation, extra : List MoveExtraOutcome } -> Board -> Board
-applyMoveFrom moveFrom move =
-    \board ->
-        board
-            |> applyMove { from = moveFrom, to = move.to, extra = move.extra }
+pieceColorOpponent : PieceColor -> PieceColor
+pieceColorOpponent =
+    \color ->
+        case color of
+            Black ->
+                White
+
+            White ->
+                Black
 
 
-type alias MoveDiff =
-    List { location : FieldLocation, replacement : Maybe ColoredPiece }
-
-
-applyMoveDiff : MoveDiff -> Board -> Board
-applyMoveDiff moveDiff_ =
-    \board ->
-        List.foldl
-            (\fieldDiff boardSoFar ->
-                boardSoFar |> replaceAt fieldDiff.location (\() -> fieldDiff.replacement)
-            )
-            board
-            moveDiff_
-
-
-replaceAt : FieldLocation -> (() -> Maybe ColoredPiece) -> Board -> Board
-replaceAt location replacement =
-    \board ->
-        board
-            |> ArraySized.elementAlter ( Up, location.row )
-                (ArraySized.elementAlter ( Up, location.column )
-                    (\field -> { field | content = replacement () })
-                )
-
-
-moveDiff : { from : FieldLocation, to : FieldLocation, extra : List MoveExtraOutcome } -> Board -> MoveDiff
-moveDiff move board =
-    [ { location = move.from, replacement = Nothing }
-    , { location = move.to, replacement = board |> at move.from }
-    ]
-        ++ (move.extra
-                |> List.concatMap (moveExtraToDiff move board)
-           )
-
-
-moveExtraToDiff : { move_ | from : FieldLocation, to : FieldLocation } -> Board -> MoveExtraOutcome -> MoveDiff
-moveExtraToDiff move board =
-    \extra ->
-        case extra of
-            ExtraCapture captureLocation ->
-                [ { location = captureLocation, replacement = Nothing }
-                ]
-
-            ExtraMove extraMove ->
-                [ { location = extraMove.from, replacement = Nothing }
-                , { location = extraMove.to, replacement = board |> at extraMove.from }
-                ]
-
-            Promote ->
-                case board |> at move.from of
-                    -- empty field wants to promote??
-                    Nothing ->
-                        []
-
-                    Just promotingPawn ->
-                        [ { location = move.to
-                          , replacement =
-                                { piece = Queen
-                                , color = promotingPawn.color
-                                }
-                                    |> Just
-                          }
-                        ]
+isCheck : { at : FieldLocation, for : PieceColor } -> Board -> Bool
+isCheck config board =
+    eyesOn { location = config.at, color = config.for |> pieceColorOpponent } board /= []
 
 
 possibleMovementDiagonally : List (List { row : Int, column : Int })
@@ -389,10 +387,160 @@ possibleMovementBy1 =
     ]
 
 
-hasPieceAt : FieldLocation -> Board -> Bool
-hasPieceAt location =
-    \board ->
-        (board |> at location) /= Nothing
+eyesOn :
+    { -- target
+      location : FieldLocation
+    , -- who looks
+      color : PieceColor
+    }
+    -> Board
+    -> List ColoredPiece
+eyesOn { location, color } board =
+    -- TODO en passant
+    let
+        whileNotBlockingPiece : (PieceKind -> Bool) -> List { row : Int, column : Int } -> List ColoredPiece
+        whileNotBlockingPiece isEyeingPieceKind =
+            \movementPossibilities ->
+                movementPossibilities
+                    |> List.Extra.stoppableFoldl
+                        (\move soFar ->
+                            case move |> locationMoving of
+                                Nothing ->
+                                    soFar |> List.Extra.Stop
+
+                                Just moveLocation ->
+                                    case board |> at moveLocation of
+                                        Nothing ->
+                                            soFar |> List.Extra.Continue
+
+                                        Just piece ->
+                                            if (piece.color == color) && (piece.piece |> isEyeingPieceKind) then
+                                                soFar |> (::) piece |> List.Extra.Continue
+
+                                            else
+                                                soFar |> List.Extra.Stop
+                        )
+                        []
+
+        locationMoving : { row : Int, column : Int } -> Maybe FieldLocation
+        locationMoving move =
+            case
+                ( (location.row |> N.toInt) + move.row |> N.intIsIn ( n0, n7 )
+                , (location.column |> N.toInt) + move.column |> N.intIsIn ( n0, n7 )
+                )
+            of
+                ( Ok row, Ok column ) ->
+                    { row = row, column = column } |> Just
+
+                _ ->
+                    Nothing
+    in
+    [ possibleLineMovement
+        |> List.concatMap
+            (whileNotBlockingPiece
+                (\pieceKind ->
+                    case pieceKind of
+                        Rook ->
+                            True
+
+                        Queen ->
+                            True
+
+                        _ ->
+                            False
+                )
+            )
+    , possibleLMovement
+        |> List.filterMap locationMoving
+        |> List.filterMap
+            (\loc ->
+                (board |> at loc)
+                    |> Maybe.andThen (justIf (\p -> p == { piece = Knight, color = color }))
+            )
+    , possibleMovementBy1
+        |> List.filterMap locationMoving
+        |> List.filterMap
+            (\loc ->
+                (board |> at loc)
+                    |> Maybe.andThen (justIf (\p -> p == { piece = King, color = color }))
+            )
+    , possibleMovementDiagonally
+        |> List.concatMap
+            (whileNotBlockingPiece
+                (\pieceKind ->
+                    case pieceKind of
+                        Bishop ->
+                            True
+
+                        Queen ->
+                            True
+
+                        _ ->
+                            False
+                )
+            )
+    , let
+        pawnDirection : Int
+        pawnDirection =
+            case color of
+                White ->
+                    -1
+
+                Black ->
+                    1
+      in
+      [ 1, -1 ]
+        |> List.filterMap
+            (\pawnColumn ->
+                locationMoving { row = pawnDirection, column = pawnColumn }
+                    |> Maybe.andThen
+                        (\eyeingPawnLocation ->
+                            board
+                                |> at eyeingPawnLocation
+                                |> Maybe.andThen (justIf (\p -> p.piece == Pawn && p.color == color))
+                        )
+            )
+    ]
+        |> List.concat
+
+
+justIf : (a -> Bool) -> a -> Maybe a
+justIf passes =
+    \value ->
+        if value |> passes then
+            Just value
+
+        else
+            Nothing
+
+
+kingLocation : PieceColor -> Board -> Maybe FieldLocation
+kingLocation kingColor board =
+    board
+        |> ArraySized.foldFrom Nothing
+            Up
+            (\boardRow soFar ->
+                case soFar of
+                    Just found ->
+                        Just found
+
+                    Nothing ->
+                        boardRow
+                            |> ArraySized.foldFrom Nothing
+                                Up
+                                (\field rowSoFar ->
+                                    case rowSoFar of
+                                        Just found ->
+                                            Just found
+
+                                        Nothing ->
+                                            if field.content == Just { piece = King, color = kingColor } then
+                                                field.location |> Just
+
+                                            else
+                                                Nothing
+                                )
+            )
 
 
 validMovesFrom : FieldLocation -> Board -> List { to : FieldLocation, extra : List MoveExtraOutcome }
@@ -408,6 +556,19 @@ validMovesFrom location board =
                         isCheckFor coloredPiece.color
                             (board |> applyMoveFrom location move)
                     )
+
+
+applyMoveFrom : FieldLocation -> { to : FieldLocation, extra : List MoveExtraOutcome } -> Board -> Board
+applyMoveFrom moveFrom move =
+    \board ->
+        board
+            |> applyMove { from = moveFrom, to = move.to, extra = move.extra }
+
+
+locationEquals : FieldLocation -> FieldLocation -> Bool
+locationEquals a b =
+    ((a.row |> N.toInt) == (b.row |> N.toInt))
+        && ((a.column |> N.toInt) == (b.column |> N.toInt))
 
 
 validMovesDisregardingChecksFrom : FieldLocation -> Board -> List { to : FieldLocation, extra : List MoveExtraOutcome }
@@ -709,121 +870,49 @@ validMovesDisregardingChecksFrom location board =
                            )
 
 
-eyesOn :
-    { -- target
-      location : FieldLocation
-    , -- who looks
-      color : PieceColor
-    }
-    -> Board
-    -> List ColoredPiece
-eyesOn { location, color } board =
-    -- TODO en passant
-    let
-        whileNotBlockingPiece : (PieceKind -> Bool) -> List { row : Int, column : Int } -> List ColoredPiece
-        whileNotBlockingPiece isEyeingPieceKind =
-            \movementPossibilities ->
-                movementPossibilities
-                    |> List.Extra.stoppableFoldl
-                        (\move soFar ->
-                            case move |> locationMoving of
-                                Nothing ->
-                                    soFar |> List.Extra.Stop
+hasPieceAt : FieldLocation -> Board -> Bool
+hasPieceAt location =
+    \board ->
+        (board |> at location) /= Nothing
 
-                                Just moveLocation ->
-                                    case board |> at moveLocation of
-                                        Nothing ->
-                                            soFar |> List.Extra.Continue
 
-                                        Just piece ->
-                                            if (piece.color == color) && (piece.piece |> isEyeingPieceKind) then
-                                                soFar |> (::) piece |> List.Extra.Continue
+listFilterMapWhile : (a -> Maybe b) -> List a -> List b
+listFilterMapWhile tryChange =
+    \list ->
+        case list of
+            [] ->
+                []
 
-                                            else
-                                                soFar |> List.Extra.Stop
-                        )
+            head :: tail ->
+                case tryChange head of
+                    Nothing ->
                         []
 
-        locationMoving : { row : Int, column : Int } -> Maybe FieldLocation
-        locationMoving move =
-            case
-                ( (location.row |> N.toInt) + move.row |> N.intIsIn ( n0, n7 )
-                , (location.column |> N.toInt) + move.column |> N.intIsIn ( n0, n7 )
-                )
-            of
-                ( Ok row, Ok column ) ->
-                    { row = row, column = column } |> Just
+                    Just changed ->
+                        changed :: listFilterMapWhile tryChange tail
 
-                _ ->
-                    Nothing
-    in
-    [ possibleLineMovement
-        |> List.concatMap
-            (whileNotBlockingPiece
-                (\pieceKind ->
-                    case pieceKind of
-                        Rook ->
-                            True
 
-                        Queen ->
-                            True
+listTakeUntil : (a -> Bool) -> List a -> List a
+listTakeUntil isEnd =
+    \list ->
+        case list of
+            [] ->
+                []
 
-                        _ ->
-                            False
-                )
-            )
-    , possibleLMovement
-        |> List.filterMap locationMoving
-        |> List.filterMap
-            (\loc ->
-                (board |> at loc)
-                    |> Maybe.andThen (justIf (\p -> p == { piece = Knight, color = color }))
-            )
-    , possibleMovementBy1
-        |> List.filterMap locationMoving
-        |> List.filterMap
-            (\loc ->
-                (board |> at loc)
-                    |> Maybe.andThen (justIf (\p -> p == { piece = King, color = color }))
-            )
-    , possibleMovementDiagonally
-        |> List.concatMap
-            (whileNotBlockingPiece
-                (\pieceKind ->
-                    case pieceKind of
-                        Bishop ->
-                            True
+            head :: tail ->
+                if isEnd head then
+                    [ head ]
 
-                        Queen ->
-                            True
+                else
+                    head :: listTakeUntil isEnd tail
 
-                        _ ->
-                            False
-                )
-            )
-    , let
-        pawnDirection : Int
-        pawnDirection =
-            case color of
-                White ->
-                    -1
 
-                Black ->
-                    1
-      in
-      [ 1, -1 ]
-        |> List.filterMap
-            (\pawnColumn ->
-                locationMoving { row = pawnDirection, column = pawnColumn }
-                    |> Maybe.andThen
-                        (\eyeingPawnLocation ->
-                            board
-                                |> at eyeingPawnLocation
-                                |> Maybe.andThen (justIf (\p -> p.piece == Pawn && p.color == color))
-                        )
-            )
-    ]
-        |> List.concat
+checkIfValidMove : Board -> { from : FieldLocation, to : FieldLocation } -> Maybe (List MoveExtraOutcome)
+checkIfValidMove board move =
+    validMovesFrom move.from board
+        |> List.Extra.find
+            (\validMove -> validMove.to |> locationEquals move.to)
+        |> Maybe.map (\validMove -> validMove.extra)
 
 
 randomComputerEvaluationChat : Float -> Random.Generator String
@@ -982,46 +1071,6 @@ computerEvaluationChat evaluation =
         )
 
 
-computerColor : PieceColor
-computerColor =
-    Black
-
-
-pieceColorOpponent : PieceColor -> PieceColor
-pieceColorOpponent =
-    \color ->
-        case color of
-            Black ->
-                White
-
-            White ->
-                Black
-
-
-type MateKind
-    = Stalemate
-    | Checkmate
-
-
-mateKindFor : PieceColor -> Board -> Maybe MateKind
-mateKindFor color =
-    \board ->
-        let
-            noValidMoves =
-                piecesFor color board
-                    |> List.all (\{ location } -> validMovesFrom location board |> List.isEmpty)
-        in
-        if noValidMoves then
-            if board |> isCheckFor color then
-                Just Checkmate
-
-            else
-                Just Stalemate
-
-        else
-            Nothing
-
-
 piecesFor : PieceColor -> Board -> List { piece : PieceKind, location : FieldLocation }
 piecesFor color =
     \board ->
@@ -1047,45 +1096,59 @@ piecesFor color =
                 )
 
 
-isCheckFor : PieceColor -> Board -> Bool
-isCheckFor color =
+validMovesFor : PieceColor -> Board -> List { from : FieldLocation, to : FieldLocation, extra : List MoveExtraOutcome }
+validMovesFor color =
     \board ->
-        case kingLocation color board of
-            -- no king??
+        board
+            |> piecesFor color
+            |> List.concatMap
+                (\from ->
+                    validMovesFrom from.location board
+                        |> List.map
+                            (\move ->
+                                { from = from.location, to = move.to, extra = move.extra }
+                            )
+                )
+
+
+mateKind : { validMoves : List move_, for : PieceColor } -> Board -> Maybe MateKind
+mateKind config =
+    \board ->
+        case config.validMoves of
+            [] ->
+                if board |> isCheckFor config.for then
+                    Just Checkmate
+
+                else
+                    Just Stalemate
+
+            _ :: _ ->
+                Nothing
+
+
+mateKindEvaluation : { colorToMove : PieceColor, validMoves : List move_ } -> Board -> Maybe Float
+mateKindEvaluation { colorToMove, validMoves } board =
+    if colorToMove == computerColor then
+        case mateKind { for = computerColor, validMoves = validMoves } board of
+            Just Stalemate ->
+                Just 0
+
+            Just Checkmate ->
+                Just -10000
+
             Nothing ->
-                False
+                Nothing
 
-            Just kingLoc ->
-                eyesOn { location = kingLoc, color = color |> pieceColorOpponent } board /= []
+    else
+        case mateKind { for = computerColor |> pieceColorOpponent, validMoves = validMoves } board of
+            Just Stalemate ->
+                Just 0
 
+            Just Checkmate ->
+                Just 10000
 
-kingLocation : PieceColor -> Board -> Maybe FieldLocation
-kingLocation kingColor board =
-    board
-        |> ArraySized.foldFrom Nothing
-            Up
-            (\boardRow soFar ->
-                case soFar of
-                    Just found ->
-                        Just found
-
-                    Nothing ->
-                        boardRow
-                            |> ArraySized.foldFrom Nothing
-                                Up
-                                (\field rowSoFar ->
-                                    case rowSoFar of
-                                        Just found ->
-                                            Just found
-
-                                        Nothing ->
-                                            if field.content == Just { piece = King, color = kingColor } then
-                                                field.location |> Just
-
-                                            else
-                                                Nothing
-                                )
-            )
+            Nothing ->
+                Nothing
 
 
 computeBestMove :
@@ -1097,42 +1160,31 @@ computeBestMove :
 computeBestMove =
     \board ->
         let
+            validMoves =
+                validMovesFor computerColor board
+
             initialEvaluation : Float
             initialEvaluation =
-                case mateKindEvaluation { colorToMove = computerColor } board of
+                case mateKindEvaluation { colorToMove = computerColor, validMoves = validMoves } board of
                     Just mateEvaluation ->
                         mateEvaluation
 
                     Nothing ->
                         boardEvaluateNowDisregardingMateKinds board
         in
-        board
-            |> piecesFor computerColor
-            |> List.concatMap
-                (\from ->
-                    validMovesFrom from.location board
-                        |> List.map
-                            (\move ->
-                                let
-                                    moveIncludingFrom : { from : FieldLocation, to : FieldLocation, extra : List MoveExtraOutcome }
-                                    moveIncludingFrom =
-                                        { from = from.location, to = move.to, extra = move.extra }
-
-                                    moveDiff_ : MoveDiff
-                                    moveDiff_ =
-                                        moveDiff moveIncludingFrom board
-                                in
-                                { move = moveIncludingFrom
-                                , evaluation =
-                                    deepEvaluateAfterMove
-                                        { colorToMove = pieceColorOpponent computerColor
-                                        , depth = 0
-                                        , board = board
-                                        , move = moveDiff_
-                                        , evaluationSoFar = initialEvaluation
-                                        }
-                                }
-                            )
+        validMoves
+            |> List.map
+                (\move ->
+                    { move = move
+                    , evaluation =
+                        deepEvaluateAfterMove
+                            { colorToMove = pieceColorOpponent computerColor
+                            , depth = 0
+                            , board = board
+                            , move = moveDiff move board
+                            , evaluationSoFar = initialEvaluation
+                            }
+                    }
                 )
             |> List.Extra.maximumBy .evaluation
             -- stalemate or checkmate
@@ -1163,54 +1215,42 @@ deepEvaluateAfterMove :
     -> Float
 deepEvaluateAfterMove { colorToMove, depth, board, evaluationSoFar, move } =
     let
-        boardAfterMove : Board
-        boardAfterMove =
-            board |> applyMoveDiff move
+        shallowEvaluation : Float
+        shallowEvaluation =
+            evaluationSoFar + moveDiffEvaluate move board
     in
-    case mateKindEvaluation { colorToMove = colorToMove |> pieceColorOpponent } boardAfterMove of
-        Just mateEvaluation ->
-            mateEvaluation
-
-        Nothing ->
-            deepEvaluate
-                { colorToMove = colorToMove
-                , board = boardAfterMove
-                , evaluationSoFar = evaluationSoFar + moveDiffEvaluate move board
-                , depth = depth
-                }
-
-
-deepEvaluate :
-    { colorToMove : PieceColor
-    , depth : Int
-    , board : Board
-    , evaluationSoFar : Float
-    }
-    -> Float
-deepEvaluate { colorToMove, depth, board, evaluationSoFar } =
-    if depth >= 2 then
-        evaluationSoFar
+    if depth >= 3 then
+        shallowEvaluation
 
     else
-        board
-            |> piecesFor colorToMove
-            |> List.concatMap
-                (\from ->
-                    validMovesFrom from.location board
-                        |> List.map
-                            (\move ->
-                                deepEvaluateAfterMove
-                                    { colorToMove = pieceColorOpponent colorToMove
-                                    , move = moveDiff { from = from.location, to = move.to, extra = move.extra } board
-                                    , depth = depth + 1
-                                    , board = board
-                                    , evaluationSoFar = evaluationSoFar
-                                    }
-                            )
-                )
-            |> chooseEvaluationBestFor colorToMove
-            -- should be caught by mate kind check
-            |> Maybe.withDefault 0
+        let
+            boardAfterMove : Board
+            boardAfterMove =
+                board |> applyMoveDiff move
+
+            validMoves : List { from : FieldLocation, to : FieldLocation, extra : List MoveExtraOutcome }
+            validMoves =
+                validMovesFor colorToMove boardAfterMove
+        in
+        case mateKindEvaluation { colorToMove = colorToMove |> pieceColorOpponent, validMoves = validMoves } boardAfterMove of
+            Just mateEvaluation ->
+                mateEvaluation
+
+            Nothing ->
+                validMoves
+                    |> List.map
+                        (\validMove ->
+                            deepEvaluateAfterMove
+                                { colorToMove = pieceColorOpponent colorToMove
+                                , move = moveDiff validMove boardAfterMove
+                                , depth = depth + 1
+                                , board = boardAfterMove
+                                , evaluationSoFar = shallowEvaluation
+                                }
+                        )
+                    |> chooseEvaluationBestFor colorToMove
+                    -- should be caught by mate kind check
+                    |> Maybe.withDefault 0
 
 
 chooseEvaluationBestFor : PieceColor -> List Float -> Maybe Float
@@ -1220,80 +1260,6 @@ chooseEvaluationBestFor colorToMove =
 
     else
         List.minimum
-
-
-mateKindEvaluation : { colorToMove : PieceColor } -> Board -> Maybe Float
-mateKindEvaluation { colorToMove } board =
-    if colorToMove == computerColor then
-        case mateKindFor computerColor board of
-            Just Stalemate ->
-                Just 0
-
-            Just Checkmate ->
-                Just -10000
-
-            Nothing ->
-                Nothing
-
-    else
-        case mateKindFor (computerColor |> pieceColorOpponent) board of
-            Just Stalemate ->
-                Just 0
-
-            Just Checkmate ->
-                Just 10000
-
-            Nothing ->
-                Nothing
-
-
-boardEvaluateNowDisregardingMateKinds : Board -> Float
-boardEvaluateNowDisregardingMateKinds =
-    \board ->
-        (piecesFor computerColor board
-            |> List.map (pieceEvaluate computerColor)
-            |> List.sum
-        )
-            - (piecesFor (computerColor |> pieceColorOpponent) board
-                |> List.map (pieceEvaluate (computerColor |> pieceColorOpponent))
-                |> List.sum
-              )
-
-
-moveDiffEvaluate : MoveDiff -> Board -> Float
-moveDiffEvaluate moveDiff_ board =
-    moveDiff_
-        |> List.foldl
-            (\moveDiffElement soFar ->
-                soFar
-                    + (case board |> at moveDiffElement.location of
-                        Nothing ->
-                            0
-
-                        Just pieceBefore ->
-                            pieceEvaluate pieceBefore.color { piece = pieceBefore.piece, location = moveDiffElement.location }
-                                |> (if pieceBefore.color == computerColor then
-                                        negate
-
-                                    else
-                                        identity
-                                   )
-                      )
-                    + (case moveDiffElement.replacement of
-                        Nothing ->
-                            0
-
-                        Just pieceReplacement ->
-                            pieceEvaluate pieceReplacement.color { piece = pieceReplacement.piece, location = moveDiffElement.location }
-                                |> (if pieceReplacement.color == computerColor then
-                                        identity
-
-                                    else
-                                        negate
-                                   )
-                      )
-            )
-            0
 
 
 pieceEvaluate : PieceColor -> { piece : PieceKind, location : FieldLocation } -> Float
@@ -1417,13 +1383,53 @@ kingEvaluateMap =
         |> ArraySized.map (ArraySized.map (\f -> f * 3.9))
 
 
-at : FieldLocation -> Board -> Maybe ColoredPiece
-at location =
+moveDiffEvaluate : MoveDiff -> Board -> Float
+moveDiffEvaluate moveDiff_ board =
+    moveDiff_
+        |> List.foldl
+            (\moveDiffElement soFar ->
+                soFar
+                    + (case board |> at moveDiffElement.location of
+                        Nothing ->
+                            0
+
+                        Just pieceBefore ->
+                            pieceEvaluate pieceBefore.color { piece = pieceBefore.piece, location = moveDiffElement.location }
+                                |> (if pieceBefore.color == computerColor then
+                                        negate
+
+                                    else
+                                        identity
+                                   )
+                      )
+                    + (case moveDiffElement.replacement of
+                        Nothing ->
+                            0
+
+                        Just pieceReplacement ->
+                            pieceEvaluate pieceReplacement.color { piece = pieceReplacement.piece, location = moveDiffElement.location }
+                                |> (if pieceReplacement.color == computerColor then
+                                        identity
+
+                                    else
+                                        negate
+                                   )
+                      )
+            )
+            0
+
+
+boardEvaluateNowDisregardingMateKinds : Board -> Float
+boardEvaluateNowDisregardingMateKinds =
     \board ->
-        board
-            |> ArraySized.element ( Up, location.row )
-            |> ArraySized.element ( Up, location.column )
-            |> .content
+        (piecesFor computerColor board
+            |> List.map (pieceEvaluate computerColor)
+            |> List.sum
+        )
+            - (piecesFor (computerColor |> pieceColorOpponent) board
+                |> List.map (pieceEvaluate (computerColor |> pieceColorOpponent))
+                |> List.sum
+              )
 
 
 subscriptions : State -> Sub Event
@@ -1724,46 +1730,34 @@ audio =
                     |> Audio.group
 
 
+type MoveExtraOutcome
+    = -- en passant
+      ExtraCapture FieldLocation
+    | -- castle
+      ExtraMove { from : FieldLocation, to : FieldLocation }
+    | Promote
+
+
 
 -- util
 
 
-listFilterMapWhile : (a -> Maybe b) -> List a -> List b
-listFilterMapWhile tryChange =
-    \list ->
-        case list of
-            [] ->
-                []
-
-            head :: tail ->
-                case tryChange head of
-                    Nothing ->
-                        []
-
-                    Just changed ->
-                        changed :: listFilterMapWhile tryChange tail
+type alias MoveDiff =
+    List { location : FieldLocation, replacement : Maybe ColoredPiece }
 
 
-listTakeUntil : (a -> Bool) -> List a -> List a
-listTakeUntil isEnd =
-    \list ->
-        case list of
-            [] ->
-                []
-
-            head :: tail ->
-                if isEnd head then
-                    [ head ]
-
-                else
-                    head :: listTakeUntil isEnd tail
+type MateKind
+    = Stalemate
+    | Checkmate
 
 
-justIf : (a -> Bool) -> a -> Maybe a
-justIf passes =
-    \value ->
-        if value |> passes then
-            Just value
-
-        else
-            Nothing
+mateKindFor : PieceColor -> Board -> Maybe MateKind
+mateKindFor color =
+    \board ->
+        mateKind
+            { for = color
+            , validMoves =
+                piecesFor color board
+                    |> List.concatMap (\{ location } -> validMovesFrom location board)
+            }
+            board
