@@ -40,6 +40,7 @@ type Event
     | FieldSelected FieldLocation
     | ComputerMoveRequested
     | InitialRandomSeedGenerated Random.Seed
+    | MoveTimeReceived Time.Posix
 
 
 type PieceKind
@@ -83,6 +84,7 @@ type alias State =
     , lastMove : Maybe { from : FieldLocation, to : FieldLocation }
     , computerChat : List String
     , randomSeed : Random.Seed
+    , moveTimes : List Time.Posix
     }
 
 
@@ -90,6 +92,7 @@ type Effect
     = LoadAudio AudioPiece
     | RequestComputerMove
     | GenerateInitialRandomSeed
+    | MoveTimeSave
 
 
 type AudioPiece
@@ -132,6 +135,7 @@ init () =
             -- dummy
             Random.initialSeed 1234432
         , lastMove = Nothing
+        , moveTimes = []
         }
         |> Reaction.effectsAdd (List.map LoadAudio audioPieces)
         |> Reaction.effectsAdd [ GenerateInitialRandomSeed ]
@@ -205,7 +209,7 @@ reactTo event =
                                                 |> applyMove { from = currentSelectedFieldLocation, to = fieldLocation, extra = extra }
                                         , lastMove = { from = currentSelectedFieldLocation, to = fieldLocation } |> Just
                                     }
-                                    |> Reaction.effectsAdd [ RequestComputerMove ]
+                                    |> Reaction.effectsAdd [ MoveTimeSave, RequestComputerMove ]
 
         ComputerMoveRequested ->
             \state ->
@@ -224,9 +228,13 @@ reactTo event =
                         , computerChat = state.computerChat |> (::) generatedComputerChatMessage
                         , randomSeed = newRandomSeed
                     }
+                    |> Reaction.effectsAdd [ MoveTimeSave ]
 
         InitialRandomSeedGenerated initialRandomSeed ->
             \state -> Reaction.to { state | randomSeed = initialRandomSeed }
+
+        MoveTimeReceived moveTime ->
+            \state -> Reaction.to { state | moveTimes = state.moveTimes |> (::) moveTime }
 
 
 type MoveExtraOutcome
@@ -833,6 +841,10 @@ computerEvaluationChat evaluation =
         ( "I swear I wasn't playing my best! Me wanna play again."
         , [ "How did i blunder this badly?!"
           , "That came outta nowhere for me. You got great strategic thinking."
+          , "I might as well resign and start over"
+          , "Either you played great... or I'm just bad at chess"
+          , "Oh man. Not my brightest hour..."
+          , "I'm not a worthy opponent for your play."
           ]
         )
 
@@ -842,6 +854,10 @@ computerEvaluationChat evaluation =
           , "Nicely done."
           , "I completely missed this idea. Nice"
           , "You got me good in this game"
+          , "Very fine moves!"
+          , "Excellent"
+          , ":---( no!"
+          , "I'm sad."
           ]
         )
 
@@ -854,6 +870,8 @@ computerEvaluationChat evaluation =
           , "This is not exactly going my way :/"
           , "I'm disappointed in myself."
           , "Yikes. I'm bad"
+          , ":("
+          , "eh..."
           ]
         )
 
@@ -896,6 +914,8 @@ computerEvaluationChat evaluation =
           , "Not great, not terrible"
           , "..."
           , "You're definitely holding."
+          , ":-|"
+          , "Do you have something planned, yet?"
           ]
         )
 
@@ -906,6 +926,9 @@ computerEvaluationChat evaluation =
           , "This is starting to look promising"
           , "Jo"
           , "If I get in a few more moves I might already be better"
+          , "Yeee"
+          , "I'm good here. How are you?"
+          , "I haven't blundered so far, which is good :)"
           ]
         )
 
@@ -916,6 +939,10 @@ computerEvaluationChat evaluation =
           , "Common, you can't just let me win like this."
           , "I really like my position!"
           , "What are you gonna do? I'd say I'm already better"
+          , "I'm poppin off!"
+          , "You're better than this!"
+          , ":)"
+          , ":-)"
           ]
         )
 
@@ -924,6 +951,9 @@ computerEvaluationChat evaluation =
         , [ "I didn't expect you to be this bad."
           , "You're blundering and I'm happy. This is how it is supposed to be."
           , "You're disappointing me."
+          , "I'd be angry at myself if I was playing as bad as you."
+          , "Just what are you doing..."
+          , "This is not how chess is played"
           ]
         )
 
@@ -933,13 +963,21 @@ computerEvaluationChat evaluation =
           , "Prepare to lose"
           , "You should be ashamed. Ashamed."
           , "Time to clean up."
+          , "Where is my big prize for winning against you?"
+          , "This is what you deserve for playing this badly."
+          , "I didn't even have to make any moves. It's more like you lost to yourself."
+          , "You might as well resign and start over"
+          , "You're not a worthy opponent for my play."
           ]
         )
 
     else
         ( "Go back to checkers"
-        , [ "Go back to tik-tak-toe"
+        , [ "Go back to tic-tac-toe"
           , "We win deez"
+          , "That wasn't even a game. What are you doing?"
+          , "Train for another 300 years."
+          , "You're terrible at this."
           ]
         )
 
@@ -1405,11 +1443,14 @@ interpretEffect =
 
             RequestComputerMove ->
                 Reaction.commands
-                    [ Process.sleep 1 |> Task.perform (\() -> ComputerMoveRequested) ]
+                    [ Process.sleep 50 |> Task.perform (\() -> ComputerMoveRequested) ]
 
             GenerateInitialRandomSeed ->
                 Reaction.commands
                     [ Random.generate InitialRandomSeedGenerated Random.independentSeed ]
+
+            MoveTimeSave ->
+                Reaction.commands [ Task.perform MoveTimeReceived Time.now ]
 
 
 audioPieceToName : AudioPiece -> String
@@ -1669,7 +1710,16 @@ pieceToIcon =
 
 audio : State -> Audio.Audio
 audio =
-    \state -> Audio.silence
+    \state ->
+        case state.audioPieceMove of
+            Err _ ->
+                Audio.silence
+
+            Ok moveAudio ->
+                state.moveTimes
+                    |> List.map
+                        (\time -> Audio.audio moveAudio time)
+                    |> Audio.group
 
 
 
