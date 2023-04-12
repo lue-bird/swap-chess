@@ -5,8 +5,8 @@ import Json.Encode
 
 
 ports :
-    { audioPortToJS : Json.Encode.Value -> Cmd msg
-    , audioPortFromJS : (Json.Decode.Value -> msg) -> Sub msg
+    { audioPortToJS : Json.Encode.Value -> Cmd event
+    , audioPortFromJS : (Json.Decode.Value -> event) -> Sub event
     }
 ports =
     { audioPortToJS = martinsstewart_elm_audio_to_js
@@ -14,7 +14,7 @@ ports =
     }
 
 
-port martinsstewart_elm_audio_to_js : Json.Encode.Value -> Cmd msg
+port martinsstewart_elm_audio_to_js : Json.Encode.Value -> Cmd event_
 
 
-port martinsstewart_elm_audio_from_js : (Json.Decode.Value -> msg) -> Sub msg
+port martinsstewart_elm_audio_from_js : (Json.Decode.Value -> event) -> Sub event
