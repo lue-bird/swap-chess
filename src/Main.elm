@@ -223,7 +223,7 @@ reactTo event =
                 Reaction.to
                     { state
                         | board =
-                            state.board |> applyMoveDiff computerMove.moveDiff
+                            state.board |> applyMove computerMove.move
                         , lastMove = { from = computerMove.move.from, to = computerMove.move.to } |> Just
                         , computerChat = state.computerChat |> (::) generatedComputerChatMessage
                         , randomSeed = newRandomSeed
@@ -1091,8 +1091,7 @@ kingLocation kingColor board =
 computeBestMove :
     Board
     ->
-        { move : { from : FieldLocation, to : FieldLocation }
-        , moveDiff : MoveDiff
+        { move : { from : FieldLocation, to : FieldLocation, extra : List MoveExtraOutcome }
         , evaluation : Float
         }
 computeBestMove =
@@ -1115,11 +1114,15 @@ computeBestMove =
                         |> List.map
                             (\move ->
                                 let
+                                    moveIncludingFrom : { from : FieldLocation, to : FieldLocation, extra : List MoveExtraOutcome }
+                                    moveIncludingFrom =
+                                        { from = from.location, to = move.to, extra = move.extra }
+
+                                    moveDiff_ : MoveDiff
                                     moveDiff_ =
-                                        moveDiff { from = from.location, to = move.to, extra = move.extra } board
+                                        moveDiff moveIncludingFrom board
                                 in
-                                { move = { from = from.location, to = move.to }
-                                , moveDiff = moveDiff_
+                                { move = moveIncludingFrom
                                 , evaluation =
                                     deepEvaluateAfterMove
                                         { colorToMove = pieceColorOpponent computerColor
@@ -1137,16 +1140,15 @@ computeBestMove =
 
 
 moveDummy :
-    { move : { from : FieldLocation, to : FieldLocation }
-    , moveDiff : MoveDiff
+    { move : { from : FieldLocation, to : FieldLocation, extra : List MoveExtraOutcome }
     , evaluation : Float
     }
 moveDummy =
     { move =
         { from = { row = n0 |> N.maxTo n7, column = n0 |> N.maxTo n7 }
         , to = { row = n0 |> N.maxTo n7, column = n0 |> N.maxTo n7 }
+        , extra = []
         }
-    , moveDiff = []
     , evaluation = 0
     }
 
