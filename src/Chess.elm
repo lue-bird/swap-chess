@@ -1,4 +1,4 @@
-module Chess exposing (Board, ColoredPiece, FieldLocation, MateKind(..), MoveDiff, MoveExtraOutcome(..), PieceColor(..), PieceKind(..), applyMove, applyMoveDiff, at, boardStartingPositionDefault, eyesOn, isCheck, isCheckFor, kingLocation, locationEquals, mateKind, moveDiff, pieceColorOpponent, pieceValidMovesFrom, validMovesFrom)
+module Chess exposing (Board, ColoredPiece, FieldLocation, MateKind(..), MoveDiff, MoveExtraOutcome(..), PieceColor(..), PieceKind(..), applyMove, applyMoveDiff, at, boardStartingPositionDefault, locationEquals, mateKind, moveDiff, pieceColorOpponent, pieceValidMovesFrom, validMovesFrom)
 
 import ArraySized exposing (ArraySized)
 import Linear exposing (Direction(..))
@@ -71,18 +71,6 @@ boardStartingPositionDefault =
             )
 
 
-isCheckFor : PieceColor -> Board -> Bool
-isCheckFor color =
-    \board ->
-        case kingLocation color board of
-            -- no king??
-            Nothing ->
-                False
-
-            Just kingLoc ->
-                isCheck { for = color, at = kingLoc } board
-
-
 pieceColorOpponent : PieceColor -> PieceColor
 pieceColorOpponent =
     \color ->
@@ -94,38 +82,15 @@ pieceColorOpponent =
                 Black
 
 
+locationEquals : FieldLocation -> FieldLocation -> Bool
+locationEquals a b =
+    ((a.row |> N.toInt) == (b.row |> N.toInt))
+        && ((a.column |> N.toInt) == (b.column |> N.toInt))
+
+
 isCheck : { at : FieldLocation, for : PieceColor } -> Board -> Bool
 isCheck config board =
     eyesOn { location = config.at, color = config.for |> pieceColorOpponent } board /= []
-
-
-kingLocation : PieceColor -> Board -> Maybe FieldLocation
-kingLocation kingColor board =
-    board
-        |> ArraySized.foldFrom Nothing
-            Up
-            (\boardRow soFar ->
-                case soFar of
-                    Just found ->
-                        Just found
-
-                    Nothing ->
-                        boardRow
-                            |> ArraySized.foldFrom Nothing
-                                Up
-                                (\field rowSoFar ->
-                                    case rowSoFar of
-                                        Just found ->
-                                            Just found
-
-                                        Nothing ->
-                                            if field.content == Just { piece = King, color = kingColor } then
-                                                field.location |> Just
-
-                                            else
-                                                Nothing
-                                )
-            )
 
 
 possibleMovementDiagonally : List (List { row : Int, column : Int })
@@ -337,10 +302,45 @@ eyesOn { location, color } board =
            )
 
 
-locationEquals : FieldLocation -> FieldLocation -> Bool
-locationEquals a b =
-    ((a.row |> N.toInt) == (b.row |> N.toInt))
-        && ((a.column |> N.toInt) == (b.column |> N.toInt))
+isCheckFor : PieceColor -> Board -> Bool
+isCheckFor color =
+    \board ->
+        case kingLocation color board of
+            -- no king??
+            Nothing ->
+                False
+
+            Just kingLoc ->
+                isCheck { for = color, at = kingLoc } board
+
+
+kingLocation : PieceColor -> Board -> Maybe FieldLocation
+kingLocation kingColor board =
+    board
+        |> ArraySized.foldFrom Nothing
+            Up
+            (\boardRow soFar ->
+                case soFar of
+                    Just found ->
+                        Just found
+
+                    Nothing ->
+                        boardRow
+                            |> ArraySized.foldFrom Nothing
+                                Up
+                                (\field rowSoFar ->
+                                    case rowSoFar of
+                                        Just found ->
+                                            Just found
+
+                                        Nothing ->
+                                            if field.content == Just { piece = King, color = kingColor } then
+                                                field.location |> Just
+
+                                            else
+                                                Nothing
+                                )
+            )
 
 
 validMovesFrom : FieldLocation -> Board -> List { to : FieldLocation, extra : List MoveExtraOutcome }
@@ -356,11 +356,6 @@ validMovesFrom location board =
                         isCheckFor coloredPiece.color
                             (board |> applyMove { from = location, to = move.to, extra = move.extra })
                     )
-
-
-withoutExtra : FieldLocation -> { to : FieldLocation, extra : List MoveExtraOutcome }
-withoutExtra =
-    \to -> { to = to, extra = [] }
 
 
 validMovesDisregardingChecksFrom : FieldLocation -> Board -> List { to : FieldLocation, extra : List MoveExtraOutcome }
@@ -636,6 +631,11 @@ validMovesDisregardingChecksFrom location board =
                                 else
                                     []
                            )
+
+
+withoutExtra : FieldLocation -> { to : FieldLocation, extra : List MoveExtraOutcome }
+withoutExtra =
+    \to -> { to = to, extra = [] }
 
 
 whiteEnPassantRow : N (In (On N0) (On N7))
