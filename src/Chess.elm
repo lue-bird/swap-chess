@@ -208,7 +208,7 @@ eyesOn { location, color } board =
 
                                         Just piece ->
                                             if (piece.color == color) && (piece.piece |> isEyeingPieceKind) then
-                                                soFar |> (::) piece |> List.Extra.Continue
+                                                piece :: soFar |> List.Extra.Continue
 
                                             else
                                                 soFar |> List.Extra.Stop
@@ -217,94 +217,124 @@ eyesOn { location, color } board =
 
         locationMoving : { row : Int, column : Int } -> Maybe FieldLocation
         locationMoving move =
-            case
-                ( (location.row |> N.toInt) + move.row |> N.intIsIn ( n0, n7 )
-                , (location.column |> N.toInt) + move.column |> N.intIsIn ( n0, n7 )
-                )
-            of
-                ( Ok row, Ok column ) ->
-                    { row = row, column = column } |> Just
+            case (location.row |> N.toInt) + move.row |> N.intIsIn ( n0, n7 ) of
+                Ok row ->
+                    case (location.column |> N.toInt) + move.column |> N.intIsIn ( n0, n7 ) of
+                        Ok column ->
+                            { row = row, column = column } |> Just
 
-                _ ->
+                        Err _ ->
+                            Nothing
+
+                Err _ ->
                     Nothing
     in
-    [ possibleLineMovement
+    (possibleLineMovement
         |> List.concatMap
-            (whileNotBlockingPiece
-                (\pieceKind ->
-                    case pieceKind of
-                        Rook ->
-                            True
+            (\movement ->
+                movement
+                    |> whileNotBlockingPiece
+                        (\pieceKind ->
+                            case pieceKind of
+                                Rook ->
+                                    True
 
-                        Queen ->
-                            True
+                                Queen ->
+                                    True
 
-                        _ ->
-                            False
-                )
-            )
-    , possibleLMovement
-        |> List.filterMap locationMoving
-        |> List.filterMap
-            (\loc ->
-                (board |> at loc)
-                    |> Maybe.andThen (justIf (\p -> p == { piece = Knight, color = color }))
-            )
-    , possibleMovementBy1
-        |> List.filterMap locationMoving
-        |> List.filterMap
-            (\loc ->
-                (board |> at loc)
-                    |> Maybe.andThen (justIf (\p -> p == { piece = King, color = color }))
-            )
-    , possibleMovementDiagonally
-        |> List.concatMap
-            (whileNotBlockingPiece
-                (\pieceKind ->
-                    case pieceKind of
-                        Bishop ->
-                            True
-
-                        Queen ->
-                            True
-
-                        _ ->
-                            False
-                )
-            )
-    , let
-        pawnDirection : Int
-        pawnDirection =
-            case color of
-                White ->
-                    -1
-
-                Black ->
-                    1
-      in
-      [ 1, -1 ]
-        |> List.filterMap
-            (\pawnColumn ->
-                locationMoving { row = pawnDirection, column = pawnColumn }
-                    |> Maybe.andThen
-                        (\eyeingPawnLocation ->
-                            board
-                                |> at eyeingPawnLocation
-                                |> Maybe.andThen (justIf (\p -> p.piece == Pawn && p.color == color))
+                                _ ->
+                                    False
                         )
             )
-    ]
-        |> List.concat
+    )
+        ++ (possibleLMovement
+                |> List.filterMap
+                    (\move ->
+                        case move |> locationMoving of
+                            Nothing ->
+                                Nothing
 
+                            Just to ->
+                                case board |> at to of
+                                    Nothing ->
+                                        Nothing
 
-justIf : (a -> Bool) -> a -> Maybe a
-justIf passes =
-    \value ->
-        if value |> passes then
-            Just value
+                                    Just p ->
+                                        if p == { piece = Knight, color = color } then
+                                            p |> Just
 
-        else
-            Nothing
+                                        else
+                                            Nothing
+                    )
+           )
+        ++ (possibleMovementBy1
+                |> List.filterMap
+                    (\move ->
+                        case move |> locationMoving of
+                            Nothing ->
+                                Nothing
+
+                            Just to ->
+                                case board |> at to of
+                                    Nothing ->
+                                        Nothing
+
+                                    Just p ->
+                                        if p == { piece = King, color = color } then
+                                            p |> Just
+
+                                        else
+                                            Nothing
+                    )
+           )
+        ++ (possibleMovementDiagonally
+                |> List.concatMap
+                    (\movement ->
+                        movement
+                            |> whileNotBlockingPiece
+                                (\pieceKind ->
+                                    case pieceKind of
+                                        Bishop ->
+                                            True
+
+                                        Queen ->
+                                            True
+
+                                        _ ->
+                                            False
+                                )
+                    )
+           )
+        ++ (let
+                pawnDirection : Int
+                pawnDirection =
+                    case color of
+                        White ->
+                            -1
+
+                        Black ->
+                            1
+            in
+            [ 1, -1 ]
+                |> List.filterMap
+                    (\pawnColumn ->
+                        case locationMoving { row = pawnDirection, column = pawnColumn } of
+                            Nothing ->
+                                Nothing
+
+                            Just eyeingPawnLocation ->
+                                case board |> at eyeingPawnLocation of
+                                    Nothing ->
+                                        Nothing
+
+                                    Just p ->
+                                        if p == { piece = Pawn, color = color } then
+                                            p |> Just
+
+                                        else
+                                            Nothing
+                    )
+           )
 
 
 locationEquals : FieldLocation -> FieldLocation -> Bool
