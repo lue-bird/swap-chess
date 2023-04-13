@@ -1,6 +1,7 @@
 // @ts-check
 import * as esbuild from "esbuild";
 import * as UglifyJS from "uglify-js";
+import * as EOL2 from "elm-optimize-level-2"
 
 /**
  * @type {import("elm-watch/elm-watch-node").Postprocess}
@@ -16,16 +17,19 @@ export default async function postprocess({
             return code;
 
         case "optimize":
-            return minify(code, {
-                // `minimal: true` runs both UglifyJS and esbuild, which results in smaller output but is slow.
-                // `minimal: false` runs only esbuild, which is super fast but results in slightly larger output.
-                // This enables the `minimal` mode for _some_ targets, based on their names in elm-watch.json,
-                // as an example. For some apps, faster builds is more important than smaller output, and vice versa.
-                // Make your choice.
-                minimal: !["Html", "Sandbox", "Element", "Document", "Worker"].includes(
-                    targetName
-                ),
-            });
+            return EOL2.transform(code, true) // o3Enabled
+                .then(optimized =>
+                    minify(optimized, {
+                        // `minimal: true` runs both UglifyJS and esbuild, which results in smaller output but is slow.
+                        // `minimal: false` runs only esbuild, which is super fast but results in slightly larger output.
+                        // This enables the `minimal` mode for _some_ targets, based on their names in elm-watch.json,
+                        // as an example. For some apps, faster builds is more important than smaller output, and vice versa.
+                        // Make your choice.
+                        minimal: !["Html", "Sandbox", "Element", "Document", "Worker"].includes(
+                            targetName
+                        ),
+                    })
+                );
 
         default:
             throw new Error(
