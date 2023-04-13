@@ -463,7 +463,7 @@ validMovesDisregardingChecksFrom location board =
                                         Nothing
 
                                     Just to ->
-                                        if isCapturable to && ((board |> at to |> Maybe.map .piece) == Just Pawn) then
+                                        if isCapturable to && ((board |> at location |> Maybe.map .piece) == Just Pawn) then
                                             { to = to
                                             , extra = promoteExtra to
                                             }
@@ -535,7 +535,20 @@ validMovesDisregardingChecksFrom location board =
                                     else
                                         []
                                    )
-                                |> whileValidMovement
+                                |> List.Extra.stoppableFoldl
+                                    (\movement soFar ->
+                                        case movement |> movementToValidEndLocation of
+                                            Nothing ->
+                                                soFar |> List.Extra.Stop
+
+                                            Just validEndLocation ->
+                                                if isPieceAt validEndLocation board then
+                                                    soFar |> List.Extra.Stop
+
+                                                else
+                                                    (validEndLocation |> withoutExtra) :: soFar |> List.Extra.Continue
+                                    )
+                                    []
                                 |> List.map (\move -> { to = move.to, extra = promoteExtra move.to ++ move.extra })
                            )
 
