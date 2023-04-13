@@ -9,11 +9,12 @@
         "chess"
     ],
     "dependencies": {
+        "elm-codegen": "^0.3.0",
         "elm-optimize-level-2": "^0.3.4",
         "elm-tooling": "1.12.0",
+        "elm-watch": "^1.1.2",
         "esbuild": "0.15.18",
         "run-pty": "4.0.3",
-        "uglify-js": "3.17.4",
-        "elm-watch": "^1.1.2"
+        "uglify-js": "3.17.4"
     }
 }
