@@ -38,6 +38,7 @@
             "lue-bird/elm-typesafe-array": "30.0.0",
             "mdgriffith/elm-ui": "1.1.8",
             "miniBill/elm-codec": "2.0.0",
+            "miniBill/elm-fast-dict": "1.0.0",
             "miniBill/elm-ui-with-context": "2.0.0",
             "myrho/elm-round": "1.0.5",
             "phosphor-icons/phosphor-elm": "2.0.0"
