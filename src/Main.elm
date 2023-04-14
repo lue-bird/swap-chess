@@ -941,10 +941,10 @@ fieldUi state info field =
                 (field.location.row |> N.toInt |> remainderBy 2)
                     == (field.location.column |> N.toInt |> remainderBy 2)
             then
-                Ui.rgb 0.8 0.35 0.12
+                Ui.rgb 0.4 0.4 0.4
 
             else
-                Ui.rgb 0.12 0.35 0.8
+                Ui.rgb 0.6 0.6 0.6
 
         attrs : List (Ui.Attribute event_)
         attrs =
@@ -955,7 +955,7 @@ fieldUi state info field =
             ]
                 ++ (if info.isValidMove then
                         [ UiBackground.color fieldColor
-                        , UiBorder.innerShadow { offset = ( 0, 0 ), size = 4, color = Ui.rgba 0 0 0 0.6, blur = 32 }
+                        , UiBorder.innerShadow { offset = ( 0, 0 ), size = 100, color = Ui.rgba 0.15 0.7 0.2 0.52, blur = 0 }
                         ]
 
                     else
@@ -974,16 +974,10 @@ fieldUi state info field =
                                                     )
                                         of
                                             Just True ->
-                                                [ UiBorder.innerShadow { offset = ( 0, 0 ), size = 4, color = Ui.rgba 1 1 1 0.6, blur = 32 } ]
+                                                [ UiBorder.innerShadow { offset = ( 0, 0 ), size = 6, color = Ui.rgb 0.15 0.7 0.2, blur = 0 } ]
 
                                             _ ->
-                                                [ UiBorder.innerShadow
-                                                    { offset = ( -6, -6 )
-                                                    , size = 10
-                                                    , blur = 20
-                                                    , color = Ui.rgba 0 0 0 0.1
-                                                    }
-                                                ]
+                                                []
                                        )
                    )
     in
@@ -995,24 +989,35 @@ fieldUi state info field =
                     Ui.none |> Ui.el attrs
 
                 Just coloredPiece ->
-                    pieceToIcon coloredPiece.piece Phosphor.Fill
-                        |> Phosphor.withSize 100
-                        |> Phosphor.withSizeUnit "%"
-                        |> Phosphor.toHtml
-                            [ SvgA.style
-                                (case coloredPiece.color of
-                                    Black ->
-                                        "color:black"
-
-                                    White ->
-                                        "color:white"
-                                )
-                            ]
-                        |> Ui.html
+                    --pieceToIcon coloredPiece.piece Phosphor.Fill
+                    --    |> Phosphor.withSize 100
+                    --    |> Phosphor.withSizeUnit "%"
+                    --    |> Phosphor.toHtml
+                    --        [ SvgA.style
+                    --            (case coloredPiece.color of
+                    --                Black ->
+                    --                    "color:black"
+                    --
+                    --                White ->
+                    --                    "color:white"
+                    --            )
+                    --        ]
+                    --    |> Ui.html
+                    Ui.text (coloredPiece.piece |> pieceToIconChar |> String.fromChar)
                         |> Ui.el
                             ([ Ui.centerX
                              , Ui.centerY
-                             , Ui.padding 10
+                             , Ui.paddingEach { left = 5, right = 5, top = 0, bottom = 11 }
+                             , UiFont.size 100
+                             , UiFont.color
+                                (case coloredPiece.color of
+                                    Black ->
+                                        Ui.rgb 0 0 0
+
+                                    White ->
+                                        Ui.rgb 1 1 1
+                                )
+                             , UiFont.family [ UiFont.typeface "Noto Sans", UiFont.typeface "Cantarell", UiFont.typeface "Ubuntu" ]
                              ]
                                 ++ attrs
                             )
@@ -1025,7 +1030,16 @@ pieceToIcon =
         case pieceKind of
             Pawn ->
                 -- Phosphor.sword
-                Phosphor.triangle
+                -- Phosphor.triangle
+                -- Phosphor.barricade
+                -- Phosphor.pushPinSimple
+                -- Phosphor.shield
+                -- Phosphor.wall
+                -- Phosphor.ghost
+                -- Phosphor.tent
+                -- Phosphor.tipi
+                -- Phosphor.umbrellaSimple
+                Phosphor.tent
 
             Bishop ->
                 -- Phosphor.cross
@@ -1041,7 +1055,8 @@ pieceToIcon =
             Rook ->
                 -- Phosphor.arrowsOutCardinal
                 -- Phosphor.plus
-                Phosphor.castleTurret
+                -- Phosphor.castleTurret
+                Phosphor.synagogue
 
             Queen ->
                 -- Phosphor.sun
@@ -1051,6 +1066,29 @@ pieceToIcon =
 
             King ->
                 Phosphor.crownSimple
+
+
+pieceToIconChar : PieceKind -> Char
+pieceToIconChar =
+    \pieceKind ->
+        case pieceKind of
+            Pawn ->
+                '♟'
+
+            Bishop ->
+                '♝'
+
+            Knight ->
+                '♞'
+
+            Rook ->
+                '♜'
+
+            Queen ->
+                '♛'
+
+            King ->
+                '♚'
 
 
 audio : State -> Audio.Audio
