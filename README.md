@@ -1,10 +1,12 @@
 ## schach web game
 
-Chess against a custom bot, built using [elm](https://elm-lang.org/).
-
-> neither feature complete, nor intended for public use, yet
+Chess, but you can switch places if your own pieces are in the way.
+No castling.
+Play against our bot.
 
 [online](https://lue-bird.github.io/schach/)
+
+built using [elm](https://elm-lang.org/).
 
 ### run locally
 ```noformatingples

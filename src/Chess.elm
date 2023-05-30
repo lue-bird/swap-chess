@@ -392,6 +392,213 @@ validMovesDisregardingChecksFrom location board =
                 movementLine () =
                     possibleLineMovement |> List.concatMap whileValidMovement
 
+                isCapturableOrSwappable : FieldLocation -> Bool
+                isCapturableOrSwappable loc =
+                    case board |> at loc of
+                        Nothing ->
+                            False
+
+                        Just coloredPieceAtLocation ->
+                            -- && (coloredPieceAtLocation.piece /= King)
+                            -- check isn't necessary because you can't ever end your move in check
+                            True
+
+                movementToValidEndLocation : { row : Int, column : Int } -> Maybe FieldLocation
+                movementToValidEndLocation movementToCheck =
+                    case (location.row |> N.toInt) + movementToCheck.row |> N.intIsIn ( n0, n7 ) of
+                        Ok rowInBoard ->
+                            case (location.column |> N.toInt) + movementToCheck.column |> N.intIsIn ( n0, n7 ) of
+                                Ok columnInBoard ->
+                                    let
+                                        locationInBoard : FieldLocation
+                                        locationInBoard =
+                                            { row = rowInBoard, column = columnInBoard }
+                                    in
+                                    if
+                                        not (board |> isPieceAt locationInBoard)
+                                            || isCapturableOrSwappable locationInBoard
+                                    then
+                                        Just locationInBoard
+
+                                    else
+                                        Nothing
+
+                                Err _ ->
+                                    Nothing
+
+                        Err _ ->
+                            Nothing
+            in
+            case coloredPiece.piece of
+                Pawn ->
+                    let
+                        direction : Int
+                        direction =
+                            case coloredPiece.color of
+                                White ->
+                                    1
+
+                                Black ->
+                                    -1
+
+                        promoteExtra : FieldLocation -> List MoveExtraOutcome
+                        promoteExtra to =
+                            if (to.row |> N.toInt) == 0 || (to.row |> N.toInt) == 7 then
+                                [ Promote ]
+
+                            else
+                                []
+                    in
+                    -- default capturing
+                    ([ 1, -1 ]
+                        |> List.filterMap
+                            (\column ->
+                                case { row = direction, column = column } |> movementToValidEndLocation of
+                                    Nothing ->
+                                        Nothing
+
+                                    Just to ->
+                                        if isCapturableOrSwappable to && ((board |> at location |> Maybe.map .piece) == Just Pawn) then
+                                            { to = to
+                                            , extra = promoteExtra to
+                                            }
+                                                |> Just
+
+                                        else
+                                            Nothing
+                            )
+                    )
+                        ++ -- en passant capturing
+                           -- TODO only if pawn to capture moved 2 last move
+                           (let
+                                enPassantRow : N (In (On N0) (On N7))
+                                enPassantRow =
+                                    case coloredPiece.color of
+                                        White ->
+                                            whiteEnPassantRow
+
+                                        Black ->
+                                            blackEnPassantRow
+                            in
+                            if (location.row |> N.toInt) /= (enPassantRow |> N.toInt) then
+                                []
+
+                            else
+                                [ 1, -1 ]
+                                    |> List.filterMap
+                                        (\column ->
+                                            case { row = 0, column = column } |> movementToValidEndLocation of
+                                                Nothing ->
+                                                    Nothing
+
+                                                Just requiredCaptureLocation ->
+                                                    if isCapturableOrSwappable requiredCaptureLocation && ((board |> at requiredCaptureLocation |> Maybe.map .piece) == Just Pawn) then
+                                                        case { row = direction, column = column } |> movementToValidEndLocation of
+                                                            Nothing ->
+                                                                Nothing
+
+                                                            Just to ->
+                                                                { to = to
+                                                                , extra =
+                                                                    if requiredCaptureLocation |> locationEquals to then
+                                                                        []
+
+                                                                    else
+                                                                        [ ExtraCapture requiredCaptureLocation ]
+                                                                }
+                                                                    |> Just
+
+                                                    else
+                                                        Nothing
+                                        )
+                           )
+                        ++ -- straight moves
+                           ({ row = direction, column = 0 }
+                                :: (let
+                                        initialRow : Int
+                                        initialRow =
+                                            case coloredPiece.color of
+                                                Black ->
+                                                    6
+
+                                                White ->
+                                                    1
+                                    in
+                                    if (location.row |> N.toInt) == initialRow then
+                                        [ { row = direction * 2, column = 0 } ]
+
+                                    else
+                                        []
+                                   )
+                                |> List.Extra.stoppableFoldl
+                                    (\movement soFar ->
+                                        case movement |> movementToValidEndLocation of
+                                            Nothing ->
+                                                soFar |> List.Extra.Stop
+
+                                            Just validEndLocation ->
+                                                if isPieceAt validEndLocation board then
+                                                    soFar |> List.Extra.Stop
+
+                                                else
+                                                    (validEndLocation |> withoutExtra) :: soFar |> List.Extra.Continue
+                                    )
+                                    []
+                                |> List.map (\move -> { to = move.to, extra = promoteExtra move.to ++ move.extra })
+                           )
+
+                Bishop ->
+                    movementDiagonal ()
+
+                Knight ->
+                    possibleLMovement
+                        |> List.filterMap (\move -> move |> movementToValidEndLocation |> Maybe.map withoutExtra)
+
+                Rook ->
+                    movementLine ()
+
+                Queen ->
+                    movementDiagonal () ++ movementLine ()
+
+                King ->
+                    possibleMovementBy1
+                        |> List.filterMap (\move -> move |> movementToValidEndLocation |> Maybe.map withoutExtra)
+
+
+validMovesDisregardingChecksFromClassical : FieldLocation -> Board -> List { to : FieldLocation, extra : List MoveExtraOutcome }
+validMovesDisregardingChecksFromClassical location board =
+    case board |> at location of
+        Nothing ->
+            []
+
+        Just coloredPiece ->
+            let
+                whileValidMovement : List { row : Int, column : Int } -> List { to : FieldLocation, extra : List MoveExtraOutcome }
+                whileValidMovement movementRay =
+                    movementRay
+                        |> List.Extra.stoppableFoldl
+                            (\movement soFar ->
+                                case movement |> movementToValidEndLocation of
+                                    Nothing ->
+                                        soFar |> List.Extra.Stop
+
+                                    Just validEndLocation ->
+                                        if isPieceAt validEndLocation board then
+                                            (validEndLocation |> withoutExtra) :: soFar |> List.Extra.Stop
+
+                                        else
+                                            (validEndLocation |> withoutExtra) :: soFar |> List.Extra.Continue
+                            )
+                            []
+
+                movementDiagonal : () -> List { to : FieldLocation, extra : List MoveExtraOutcome }
+                movementDiagonal () =
+                    possibleMovementDiagonally |> List.concatMap whileValidMovement
+
+                movementLine : () -> List { to : FieldLocation, extra : List MoveExtraOutcome }
+                movementLine () =
+                    possibleLineMovement |> List.concatMap whileValidMovement
+
                 isCapturable : FieldLocation -> Bool
                 isCapturable loc =
                     case board |> at loc of
@@ -717,6 +924,42 @@ at location =
 
 moveDiff : { from : FieldLocation, to : FieldLocation, extra : List MoveExtraOutcome } -> Board -> MoveDiff
 moveDiff move board =
+    let
+        atOrigin =
+            board |> at move.from
+
+        atDestination =
+            board |> at move.to
+    in
+    [ { location = move.from
+      , replacement =
+            case ( atOrigin, atDestination ) of
+                -- moved a piece that doesn't exist??
+                ( Nothing, _ ) ->
+                    Nothing
+
+                -- move without swap
+                ( Just _, Nothing ) ->
+                    Nothing
+
+                ( Just movedPiece, Just destinationPiece ) ->
+                    if movedPiece.color == destinationPiece.color then
+                        -- swap
+                        Just destinationPiece
+
+                    else
+                        -- capture
+                        Nothing
+      }
+    , { location = move.to, replacement = atOrigin }
+    ]
+        ++ (move.extra
+                |> List.concatMap (moveExtraToDiff move board)
+           )
+
+
+moveDiffClassical : { from : FieldLocation, to : FieldLocation, extra : List MoveExtraOutcome } -> Board -> MoveDiff
+moveDiffClassical move board =
     [ { location = move.from, replacement = Nothing }
     , { location = move.to, replacement = board |> at move.from }
     ]

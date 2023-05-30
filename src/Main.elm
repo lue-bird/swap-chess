@@ -637,7 +637,7 @@ deepEvaluateAfterMove { colorToMove, depth, board, evaluationSoFar, move, pieceL
         shallowEvaluation =
             evaluationSoFar + moveDiffEvaluate moveDiff_ board
     in
-    if depth >= 3 then
+    if depth >= 2 then
         shallowEvaluation
 
     else
